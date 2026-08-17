@@ -1,0 +1,78 @@
+/* Airport Baggage Crew — interface chrome.
+ * The world is Canvas 2D; these are the DOM/CSS panels over it (GDD §21.1).
+ *
+ * Token contract inherited from Chameleon / Something's Different (Dev\INDEX.md
+ * "UI / shell" → style tokens), so the three games look like one studio's work.
+ * Fonts are NOT fetched — no external requests at runtime (GDD §21.1). Quicksand and
+ * Baloo 2 are used when the player happens to have them; the stack falls back cleanly.
+ */
+
+:root{
+  --bg:#0b0a12; --panel:#171522; --panel2:#211e30; --line:#332f47;
+  --text:#eae6f4; --dim:#8d87a3; --paper:#f2ead9;
+  --lime:#a8d93a; --violet:#8a7ff0; --coral:#ff5a5a;
+  /* operational status colours — GDD §16.3. Always paired with text, never alone. */
+  --st-scheduled:#5b8dd6; --st-loading:#5ec96a; --st-final:#f2c14e;
+  --st-closing:#ff5a5a;   --st-departed:#6b6880;
+
+  --font-ui:Quicksand,'Segoe UI',system-ui,-apple-system,sans-serif;
+  --font-display:'Baloo 2','Segoe UI',system-ui,sans-serif;
+  --font-mono:ui-monospace,'Cascadia Mono',Consolas,monospace;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;background:var(--bg);
+  font-family:var(--font-ui);color:var(--text)}
+canvas{display:block;width:100%;height:100%}
+
+#stage{position:fixed;inset:0}
+#ui{position:fixed;inset:0;pointer-events:none}
+#ui button,#ui .screen.on{pointer-events:auto}
+
+/* ── top bar ─────────────────────────────────────────────────────────────── */
+.hud-top{position:absolute;top:0;left:0;right:0;display:none;
+  gap:18px;align-items:center;padding:10px 16px;
+  background:linear-gradient(180deg,rgba(11,10,18,.88),rgba(11,10,18,0));}
+.hud-top.on{display:flex}
+.hud-label{font-size:11px;letter-spacing:.14em;color:var(--dim)}
+.hud-clock{display:flex;align-items:baseline;gap:7px;font-family:var(--font-mono)}
+.hud-time{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.hud-sep,.hud-total{color:var(--dim);font-size:14px}
+.hud-slot{flex:1;display:flex;justify-content:flex-end}
+.hud-pending{font-size:11px;letter-spacing:.12em;color:#4a4660;
+  border:1px dashed var(--line);border-radius:6px;padding:4px 9px}
+
+/* ── full-screen cards ───────────────────────────────────────────────────── */
+.screen{position:absolute;inset:0;display:none;align-items:center;justify-content:center;
+  background:rgba(11,10,18,.82);backdrop-filter:blur(3px)}
+.screen.on{display:flex}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:34px 38px;max-width:560px;text-align:center;
+  box-shadow:0 24px 60px rgba(0,0,0,.55)}
+.card h1{font-family:var(--font-display);font-size:40px;font-weight:800;
+  letter-spacing:-.01em;margin-bottom:6px}
+.card h2{font-family:var(--font-display);font-size:28px;font-weight:800;margin-bottom:6px}
+.card .tag{color:var(--dim);font-size:15px;margin-bottom:4px}
+.card .milestone{color:var(--lime);font-size:12px;letter-spacing:.12em;
+  text-transform:uppercase;margin:14px 0 20px}
+.card .hint{color:var(--dim);font-size:13px;margin-top:18px;line-height:1.6}
+.card .scope{color:#5f5b77;font-size:12px;margin-top:10px;line-height:1.6}
+kbd{font-family:var(--font-mono);font-size:11px;background:var(--panel2);
+  border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px}
+
+button{font-family:var(--font-ui);font-size:15px;font-weight:700;cursor:pointer;
+  border-radius:9px;padding:11px 22px;margin:5px 4px 0;
+  background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+button:hover{border-color:var(--violet)}
+button.primary{background:var(--lime);color:#151a08;border-color:transparent}
+button.primary:hover{filter:brightness(1.08)}
+button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+
+/* ── developer overlay (never player-facing — GDD §21.8) ─────────────────── */
+.debug{position:absolute;top:0;left:0;display:none;white-space:pre;
+  font-family:var(--font-mono);font-size:11px;line-height:1.45;
+  color:#5ce1e6;background:rgba(6,10,12,.86);border-right:1px solid #17414a;
+  border-bottom:1px solid #17414a;padding:10px 14px;max-width:44ch;pointer-events:none}
+.debug.on{display:block}
+
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
