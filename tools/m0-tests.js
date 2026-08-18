@@ -197,8 +197,16 @@ lines.push('--- C. Game state, pause, restart, determinism (GDD 21.4, 29) ---');
   g.rng.world.float();
   ok('C13 the shift accumulated time before restart', g.state.simTimeMs > 29000);
   g.startShift();
-  ok('C14 restart zeroes sim time, steps and rng draws',
-     g.state.simTimeMs === 0 && g.clock.stepCount === 0 && g.rng.world.draws === 0);
+  // Since Milestone 1, reset() authors the shift's bag timetable from the seeded
+  // stream, so "draws === 0" is no longer the invariant. The real one is that a restart
+  // leaves every stream exactly where a brand-new game with that seed would leave it.
+  const fresh = new Game({ seed: 12345, seedLabel: 'regional_day_1' });
+  ok('C14 restart zeroes sim time and steps, and re-seeds every RNG stream',
+     g.state.simTimeMs === 0 && g.clock.stepCount === 0 &&
+     g.rng.world.draws === fresh.rng.world.draws &&
+     g.rng.bags.draws === fresh.rng.bags.draws &&
+     g.rng.sim.draws === fresh.rng.sim.draws,
+     `${g.rng.world.draws} vs ${fresh.rng.world.draws}`);
   eq('C15 restart keeps the seed', g.seed, 12345);
   eq('C16 restart clears the event log', g.bus.log.filter((e) => e.simTimeMs > 0).length, 0);
 
@@ -421,9 +429,13 @@ async function sectionH() {
     ok('H5 the canvas has a real backing store',
        renderer.canvas.width > 0 && renderer.canvas.height > 0,
        `${renderer.canvas.width}x${renderer.canvas.height}`);
-    ok('H6 the camera fits the whole airport on screen',
-       camera.visibleM.w >= WORLD.widthM && camera.visibleM.h >= WORLD.heightM,
-       `${camera.visibleM.w.toFixed(1)}x${camera.visibleM.h.toFixed(1)} m`);
+    // Since Milestone 1 the default camera follows the player at a zoom set by tag
+    // readability (CONFIG.render.viewWidthM). Fit mode still exists and still fits.
+    const fitS = camera.fitScale();
+    ok('H6 the camera is at the configured zoom, and fit mode would still show it all',
+       Math.abs(camera.visibleM.w - CONFIG.render.viewWidthM) < 0.6 &&
+       fitS * WORLD.widthM <= camera.cssW + 1 && fitS * WORLD.heightM <= camera.cssH + 1,
+       `${camera.visibleM.w.toFixed(1)} m across`);
 
     // the renderer really painted: sample the world centre, which sits on the ramp
     const px = renderer.ctx.getImageData(

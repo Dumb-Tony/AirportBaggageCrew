@@ -5,7 +5,7 @@
  *
  * The frame is deliberately dumb:
  *     rAF -> game.frame(dt, input) -> clock.advance -> N * game.step
- *         -> renderer.render(state) -> hud.update() -> debug.update()
+ *         -> camera.follow -> renderer.render(state) -> hud.update() -> debug.update()
  * Simulation cannot advance anywhere else. That is the pause guarantee.
  */
 
@@ -28,6 +28,8 @@ const camera = new Camera({
   worldH: WORLD.heightM,
   paddingM: CONFIG.render.fitPaddingM,
   maxPixelRatio: CONFIG.render.maxPixelRatio,
+  viewWidthM: CONFIG.render.viewWidthM,
+  followLerp: CONFIG.render.followLerp,
 });
 const renderer = new Renderer(canvas, camera);
 renderer.showGrid = CONFIG.render.showGrid;
@@ -35,6 +37,15 @@ renderer.showGrid = CONFIG.render.showGrid;
 const input = new Input(window).attach();
 const hud   = new Hud(uiRoot, game);
 const debug = new DebugOverlay(uiRoot, game, renderer);
+
+/* Mouse aim. The screen position is stored on move; the WORLD position is recomputed
+   every frame, because the camera moves under a stationary cursor and the hands must
+   keep pointing at the same place on the ramp, not the same place on the glass. */
+window.addEventListener('mousemove', (e) => {
+  input.pointer.x = e.clientX;
+  input.pointer.y = e.clientY;
+  input.pointer.seen = true;
+});
 
 /* Focus loss auto-pauses — GDD §24.3. Alt-tabbing out of a live airport and returning to
    three departed flights is a bug report, not a difficulty setting. */
@@ -47,12 +58,19 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) game.
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
     e.preventDefault();
-    if (game.state.mode === MODES.TITLE) game.startShift();
+    if (game.state.mode === MODES.TITLE) startShift();
     else game.togglePause();
   }
   // Restart is gated behind the pause screen so a mistyped R cannot destroy a shift.
-  if (e.code === 'KeyR' && game.state.mode === MODES.PAUSED) { e.preventDefault(); game.startShift(); }
+  if (e.code === 'KeyR' && game.state.mode === MODES.PAUSED) { e.preventDefault(); startShift(); }
 });
+
+/** Start or restart, snapping the camera so a restart never pans across the airport. */
+function startShift() {
+  game.startShift();
+  camera.follow(game.state.player.x, game.state.player.y, 0);
+}
+hud.onStart = startShift;
 
 let last = performance.now();
 
@@ -61,7 +79,16 @@ function frame(now) {
   last = now;
 
   camera.resize(canvas);
+
+  if (input.pointer.seen) {
+    input.pointerWorld = camera.screenToWorld(input.pointer.x, input.pointer.y);
+  }
+
   game.frame(dt, input);
+
+  // Presentation only: the camera is not simulation, so it eases on REAL time and keeps
+  // easing while paused. It must never feed anything back into the game.
+  camera.follow(game.state.player.x, game.state.player.y, Math.min(dt, 100) / 1000);
 
   renderer.render(game.state);
   hud.update();
@@ -73,4 +100,4 @@ requestAnimationFrame(frame);
 
 /* Debug/test handle. Mirrors `__SD` in Something's Different — the smoke-test harness
    drives the real objects through this rather than reaching into module scope. */
-window.__ABC = { game, camera, renderer, hud, debug, input, CONFIG };
+window.__ABC = { game, camera, renderer, hud, debug, input, CONFIG, startShift };

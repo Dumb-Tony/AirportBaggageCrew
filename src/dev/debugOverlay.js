@@ -11,6 +11,7 @@
 
 import { CONFIG } from '../config.js';
 import { GameClock } from '../core/clock.js';
+import { assertContainment } from '../systems/containment.js';
 
 export class DebugOverlay {
   constructor(root, game, renderer) {
@@ -65,30 +66,53 @@ export class DebugOverlay {
     }
     if (!this.visible) return;
 
-    const d = this.game.describe();
-    const evts = this.game.bus.recent(CONFIG.debug.recentEvents)
+    const g = this.game;
+    const s = g.state;
+    const d = g.describe();
+    const evts = g.bus.recent(CONFIG.debug.recentEvents)
       .map((e) => `  ${String(Math.round(e.simTimeMs)).padStart(7)}  ${e.type}`)
       .join('\n') || '  (none)';
+
+    const L = d.byLocation;
+    const held = s.player.carryingBagId || '-';
+    const target = s.player.targetBagId || '-';
+
+    // The containment invariant, checked live. GDD §31.3 asks for development
+    // assertions on illegal bag locations; this is the one place a violation can be
+    // seen the instant it happens rather than at the next test run.
+    const bad = assertContainment(s);
 
     this.el.textContent =
 `AIRPORT BAGGAGE CREW - DEV OVERLAY        F3 close
 mode        ${d.mode}
 sim time    ${GameClock.formatMs(d.simTimeMs)}  (${Math.round(d.simTimeMs)} ms)
-shift left  ${GameClock.formatMs(this.game.shiftRemainingMs)}
+shift left  ${GameClock.formatMs(g.shiftRemainingMs)}
 steps       ${d.stepCount}      frames ${d.frames}
 fps         ${this.fps}         step ${CONFIG.sim.stepMs.toFixed(3)} ms
 time scale  ${d.timeScale}x     [ ] change   . skip 10s
 clamped     ${d.clampedFrames} frame(s) over ${CONFIG.sim.maxFrameMs} ms
 seed        ${d.seed}  "${d.seedLabel}"
-rng draws   world=${d.worldDraws}
+rng draws   world=${d.draws.world} bags=${d.draws.bags} sim=${d.draws.sim}
 events      ${d.events} emitted
+
+bags        ${d.bags} spawned of ${s.shift.bagSchedule.length} scheduled
+  belt      ${L.conveyor}   (delivered ${d.delivered})
+  floor     ${L.floor}
+  carried   ${L.carried}
+  cart      ${L.cart}      hold ${L.aircraftHold}
+containment ${bad.length === 0 ? 'OK' : 'VIOLATED: ' + bad[0]}
+grid        ${g.grid.count} indexed, ${CONFIG.grid.cellM} m cells
+
+player      ${d.player.x.toFixed(2)}, ${d.player.y.toFixed(2)}
+held        ${held}
+target      ${target}
 bounds      ${this.renderer.showBounds ? 'ON' : 'off'} (B)    grid ${this.renderer.showGrid ? 'ON' : 'off'} (G)
 
 recent events
 ${evts}
 
-pending: flight timers (M3) - bag counts by state (M1)
-         selected entity (M1) - spawn bag / force departure (M3)`;
+pending: flight timers (M3) - carts (M2)
+         spawn bag / force departure (M3)`;
   }
 
   destroy() { window.removeEventListener('keydown', this._onKey); this.el.remove(); }

@@ -33,12 +33,51 @@ export const CONFIG = {
 
   /* ── presentation ───────────────────────────────────────────────────────── */
   render: {
-    // Milestone 0 fits the whole airport on screen so the route context is visible
-    // (GDD §19.3). A following camera arrives with the player in Milestone 1.
-    fitPaddingM: 3,
+    // GDD §19.3: a gently following top-down camera "showing enough route context to
+    // plan". viewWidthM sets the zoom, and it is a READABILITY number, not a taste one:
+    // GDD §7.2 requires the flight code on a tag to be legible without scanning, and a
+    // 0.72 m bag has to survive that. At 62 m across a 1600 px window that is ~26 px/m,
+    // so a bag is ~19 px and its tag text ~11 px. Widen this and the tags stop working.
+    viewWidthM: 62,
+    followLerp: 7,         // camera catch-up rate, 1/s. Higher is snappier, more jarring.
+    fitPaddingM: 3,        // used by the 'fit' camera mode (debug, and Milestone 0)
     maxPixelRatio: 2,      // cap DPR: a 4K display would otherwise quadruple fill cost
     gridM: 10,             // reference grid spacing
     showGrid: false,
+  },
+
+  /* ── player ─────────────────────────────────────────────────────────────── */
+  player: {
+    radiusM: 0.34,
+    maxSpeed: 4.2,         // m/s — a brisk jog. The sort room crosses in ~7 s.
+    accel: 30,             // m/s^2, reaches full speed in ~0.14 s: responsive, not floaty
+    friction: 22,          // deceleration with no input
+    reachM: 1.7,           // grab / scan / interact range
+    pushStrength: 1.0,     // how hard walking into a bag shoves it
+  },
+
+  /* ── bags ───────────────────────────────────────────────────────────────── */
+  bag: {
+    friction: 6.0,         // floor deceleration, m/s^2
+    restitution: 0.30,     // wall bounce
+    separation: 0.55,      // positional push-apart per step, 0..1. 1 is rigid and jittery.
+    carryOffsetM: 0.66,    // held this far in front of the player
+    throwMinSpeed: 4.0,    // a tap
+    throwMaxSpeed: 12.0,   // a fully charged heave
+    throwChargeMs: 620,
+    beltSpacingM: 0.95,    // minimum gap between bags riding the conveyor
+    dropScatterMps: 0.6,   // sideways kick as a bag leaves the belt, so piles spread
+  },
+
+  /* ── interaction ────────────────────────────────────────────────────────── */
+  interaction: {
+    scanCardMs: 3400,      // how long a scan result stays up
+    aimBiasDeg: 70,        // targeting cone: prefer bags roughly where the player aims
+  },
+
+  /* ── spatial index ──────────────────────────────────────────────────────── */
+  grid: {
+    cellM: 4,              // ~ the reach diameter; bigger cells mean longer scan lists
   },
 
   /* ── debug ──────────────────────────────────────────────────────────────── */
@@ -51,11 +90,10 @@ export const CONFIG = {
     recentEvents: 6,
   },
 
-  /* ── player / vehicles / bags ───────────────────────────────────────────── */
-  // Deliberately absent at Milestone 0. GDD §31.1.3: future systems are represented by
-  // clean boundaries, not half-built features. Each block lands with its milestone:
-  //   player   -> M1      bags -> M1      carts, tractor -> M2
-  //   flights  -> M3      scoring -> M4
+  /* ── carts, tractor, flights, scoring ───────────────────────────────────── */
+  // Deliberately absent. GDD §31.1.3: future systems are represented by clean
+  // boundaries, not half-built features. Each block lands with its milestone:
+  //   carts, tractor -> M2      flights -> M3      scoring -> M4      audio -> M5
 };
 
 /** Deep-frozen so a system cannot quietly retune the game at runtime. Difficulty

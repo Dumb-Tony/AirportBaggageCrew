@@ -11,6 +11,9 @@
 
 import { MODES } from '../game.js';
 import { GameClock } from '../core/clock.js';
+import { ScannerCard } from './scannerCard.js';
+
+const key = (k) => `<kbd>${k}</kbd>`;
 
 export class Hud {
   constructor(root, game) {
@@ -33,6 +36,11 @@ export class Hud {
         <div class="hud-slot" id="hudBoardSlot">
           <span class="hud-pending">FLIGHT BOARD &mdash; MILESTONE 3</span>
         </div>
+      </div>
+
+      <div class="hud-bottom" id="hudBottom">
+        <div class="held" id="hudHeld"></div>
+        <div class="prompt" id="hudPrompt"></div>
       </div>
 
       <div class="screen" id="screenTitle">
@@ -62,12 +70,17 @@ export class Hud {
     const $ = (id) => this.root.querySelector('#' + id);
     this.el = {
       top: $('hudTop'), time: $('hudTime'), total: $('hudTotal'),
+      bottom: $('hudBottom'), held: $('hudHeld'), prompt: $('hudPrompt'),
       title: $('screenTitle'), pause: $('screenPause'),
     };
+    this.scannerCard = new ScannerCard(this.root);
 
-    $('btnStart').onclick   = () => this.game.startShift();
+    // onStart is set by the bootstrap so a restart can also snap the camera. Falling
+    // back to game.startShift() keeps the HUD usable when constructed on its own.
+    const start = () => (this.onStart ? this.onStart() : this.game.startShift());
+    $('btnStart').onclick   = start;
     $('btnResume').onclick  = () => this.game.setMode(MODES.PLAYING);
-    $('btnRestart').onclick = () => this.game.startShift();
+    $('btnRestart').onclick = start;
     $('btnQuit').onclick    = () => { this.game.reset(); this.game.setMode(MODES.TITLE); };
 
     this.el.total.textContent = GameClock.formatMs(this.game.state.shift.endTimeMs);
@@ -79,14 +92,54 @@ export class Hud {
     this.el.title.classList.toggle('on', m === MODES.TITLE);
     this.el.pause.classList.toggle('on', m === MODES.PAUSED);
     this.el.top.classList.toggle('on', m === MODES.PLAYING || m === MODES.PAUSED);
+    this.el.bottom.classList.toggle('on', m === MODES.PLAYING);
   }
 
-  /** Called once per rendered frame. Cheap: two text writes, and only when changed
-   *  (GDD §24.2 — UI updates must not rebuild panels every frame). */
+  /** Called once per rendered frame. Everything below is diffed against what is already
+   *  on screen and only written when it changed — GDD §24.2 forbids rebuilding panels
+   *  every frame, and this runs at 60 Hz next to a canvas that needs the budget. */
   update() {
-    const t = GameClock.formatMs(this.game.state.simTimeMs);
+    const state = this.game.state;
+
+    const t = GameClock.formatMs(state.simTimeMs);
     if (t !== this._lastTime) { this.el.time.textContent = t; this._lastTime = t; }
+
+    /* held-object indicator — GDD §16.1 "what am I holding?" */
+    const held = state.player.carryingBagId ? state.bagsById[state.player.carryingBagId] : null;
+    const heldKey = held ? `${held.id}|${held.priority}|${held.weightClass}` : '';
+    if (heldKey !== this._lastHeld) {
+      this._lastHeld = heldKey;
+      if (held) {
+        this.el.held.className = 'held on';
+        this.el.held.innerHTML =
+          `<span class="chip" style="background:${held.appearance.tagColor}"></span>` +
+          `<b>${held.destinationCode}</b> <span class="tagno">${held.tag}</span>` +
+          (held.priority ? ' <span class="pri">PRIORITY</span>' : '') +
+          (held.weightClass === 'heavy' ? ' <span class="hvy">HEAVY</span>' : '');
+      } else {
+        this.el.held.className = 'held';
+        this.el.held.innerHTML = '';
+      }
+    }
+
+    /* contextual prompt — GDD §16.2, §16.5: hint at the moment, never a modal */
+    const target = state.player.targetBagId;
+    const promptKey = `${held ? 'h' : ''}${target ? 't' : ''}`;
+    if (promptKey !== this._lastPrompt) {
+      this._lastPrompt = promptKey;
+      let html = '';
+      if (held) html = key('E') + ' Put down   ' + key('Space') + ' Hold to throw   ' + key('Q') + ' Scan';
+      else if (target) html = key('E') + ' Pick up   ' + key('Q') + ' Scan';
+      this.el.prompt.innerHTML = html;
+      this.el.prompt.classList.toggle('on', html !== '');
+    }
+
+    this.scannerCard.update(state);
   }
 
-  destroy() { if (this._unsub) this._unsub(); this.root.innerHTML = ''; }
+  destroy() {
+    if (this._unsub) this._unsub();
+    this.scannerCard.destroy();
+    this.root.innerHTML = '';
+  }
 }

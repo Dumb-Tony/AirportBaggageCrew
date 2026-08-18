@@ -33,7 +33,10 @@ export class Input {
     this._down = new Set();      // codes physically held
     this._pressed = new Set();   // codes that went down since the last endStep()
     this._released = new Set();
-    this.pointer = { x: 0, y: 0, down: false };
+    // `seen` stays false until the player actually moves the mouse, so keyboard-only
+    // play aims by movement direction instead of at the top-left corner (GDD §16.6).
+    this.pointer = { x: 0, y: 0, down: false, seen: false };
+    this.pointerWorld = null;      // world-space aim, recomputed each frame by main.js
     this._bound = [];
     /** Fired when the window loses focus. main.js pauses on it — GDD §24.3. */
     this.onBlur = null;

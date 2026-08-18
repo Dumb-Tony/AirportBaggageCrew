@@ -19,13 +19,29 @@ import { CONFIG } from './config.js';
 import { GameClock } from './core/clock.js';
 import { EventBus, EVENTS } from './core/eventBus.js';
 import { Rng, hashStr } from './core/rng.js';
+import { SpatialGrid } from './core/grid.js';
 import { BOUNDS, WORLD, ANCHORS } from './data/airport.js';
+import { buildBagSchedule } from './data/flights.js';
+import { createPlayer, stepPlayer } from './entities/player.js';
+import { createConveyor, stepConveyor } from './entities/conveyor.js';
+import { spawnDueBags, stepBags, rebuildGrid } from './systems/baggageFlow.js';
+import { stepInteraction } from './systems/interaction.js';
+import { countByLocation } from './systems/containment.js';
 
 export const MODES = Object.freeze({
   TITLE: 'title',
   PLAYING: 'playing',
   PAUSED: 'paused',
   REPORT: 'report',   // reached in Milestone 4, with the shift report
+});
+
+/* One named RNG stream per concern, each seeded from the shift seed with a fixed offset.
+ * Separate streams mean adding a draw to one system cannot shift the sequence another
+ * system sees — the bug that silently reshuffles a balanced shift. */
+const STREAMS = Object.freeze({
+  world: 0x00000000,   // shift composition: tag numbers, the bag timetable
+  bags:  0x9e3779b9,   // per-bag appearance
+  sim:   0x85ebca6b,   // runtime jitter: conveyor drop scatter
 });
 
 /**
@@ -39,12 +55,20 @@ export function createInitialState(seed, seedLabel) {
     seedLabel,
     mode: MODES.TITLE,
     simTimeMs: 0,
-    shift: { id: CONFIG.shift.id, endTimeMs: CONFIG.shift.durationMs },
+    shift: {
+      id: CONFIG.shift.id,
+      endTimeMs: CONFIG.shift.durationMs,
+      bagSchedule: [],      // filled by Game.reset() from the seeded stream
+      nextSpawnIdx: 0,
+      tagBase: 0,
+      spawned: 0,
+    },
+
+    player: createPlayer(ANCHORS.playerSpawn),
+    bagsById: {},
 
     // Populated by their own milestones. Present now so every system can assume the
     // keys exist and no code has to defend against `undefined` containers.
-    player: {},
-    bagsById: {},
     cartsById: {},
     vehiclesById: {},
     aircraftById: {},
@@ -55,8 +79,10 @@ export function createInitialState(seed, seedLabel) {
       heightM: WORLD.heightM,
       bounds: { ...BOUNDS },
       spawn: { ...ANCHORS.playerSpawn },
+      conveyor: createConveyor(),
     },
 
+    scan: null,           // the live scanner card, or null
     score: { points: 0, correct: 0, wrong: 0, missed: 0 },
     announcements: [],
     settings: { showGrid: CONFIG.render.showGrid },
@@ -67,26 +93,37 @@ export class Game {
   constructor({ seed = CONFIG.sim.defaultSeed, seedLabel = CONFIG.sim.seedLabel } = {}) {
     this.bus = new EventBus({ logSize: CONFIG.debug.eventLogSize });
     this.clock = new GameClock({ stepMs: CONFIG.sim.stepMs, maxFrameMs: CONFIG.sim.maxFrameMs });
-
-    // One named stream per concern, so adding a draw to one system cannot shift the
-    // sequence another system sees. `world` is the only stream at Milestone 0.
-    this.rng = { world: new Rng(seed, 'world') };
+    this.grid = new SpatialGrid(WORLD.widthM, WORLD.heightM, CONFIG.grid.cellM);
 
     this.seed = seed >>> 0;
     this.seedLabel = seedLabel;
+    this.rng = {};
+    for (const name of Object.keys(STREAMS)) {
+      this.rng[name] = new Rng((this.seed ^ STREAMS[name]) >>> 0, name);
+    }
+
     this.state = createInitialState(this.seed, this.seedLabel);
+    this._authorShift();
     this._listeners = new Set();
     this.frames = 0;
     this._syncClockToMode();
   }
+
+  /** Seed from a label so a named shift is reproducible without carrying a number. */
+  static seedFromLabel(label) { return hashStr(label); }
 
   /** clock.paused is a FUNCTION of mode and must never be set independently. Without
    *  this, a freshly constructed game sat on the title screen with a running clock and
    *  the shift silently burned time behind the title card. Caught by m0 C3. */
   _syncClockToMode() { this.clock.setPaused(this.state.mode !== MODES.PLAYING); }
 
-  /** Seed from a label so a named shift is reproducible without carrying a number. */
-  static seedFromLabel(label) { return hashStr(label); }
+  /** Draw the shift's content from the seeded stream. Order matters and is fixed: the
+   *  tag base first, then the timetable, so adding detail to the timetable later cannot
+   *  renumber every bag in an already-balanced shift. */
+  _authorShift() {
+    this.state.shift.tagBase = this.rng.world.int(100000, 899999);
+    this.state.shift.bagSchedule = buildBagSchedule(this.rng.world);
+  }
 
   /* ── lifecycle ────────────────────────────────────────────────────────── */
 
@@ -97,9 +134,13 @@ export class Game {
     this.seed = seed >>> 0;
     this.seedLabel = seedLabel;
     this.clock.reset();
-    for (const r of Object.values(this.rng)) r.reset(this.seed);
+    for (const name of Object.keys(STREAMS)) {
+      this.rng[name].reset((this.seed ^ STREAMS[name]) >>> 0);
+    }
+    this.grid.clear();
     this.bus.clearLog();
     this.state = createInitialState(this.seed, this.seedLabel);
+    this._authorShift();
     this.frames = 0;
     this._syncClockToMode();
     this.bus.emit(EVENTS.SIM_RESET, { seed: this.seed, seedLabel }, 0);
@@ -161,22 +202,32 @@ export class Game {
   }
 
   /**
-   * One fixed simulation step. Every gameplay system is called from here, in order.
-   * Milestone 0 has no systems; simTimeMs mirroring is the whole body.
+   * One fixed simulation step. Every gameplay system is called from here, in this order.
+   *
+   * The order is load-bearing: bags must be spawned and carried along the belt before
+   * the grid is rebuilt, the grid must exist before interaction can target anything, and
+   * the player must have moved before a carried bag is asked to follow the hands.
    */
-  step(stepMs, simTimeMs /*, input */) {
+  step(stepMs, simTimeMs, input) {
     this.state.simTimeMs = simTimeMs;
+    const dt = stepMs / 1000;
+
+    spawnDueBags(this.state, this.rng.bags, simTimeMs, this.bus);
+    stepConveyor(this.state, dt, this.bus, simTimeMs, this.rng.sim);
+    rebuildGrid(this.state, this.grid);
+    stepPlayer(this.state, dt, input);
+    stepInteraction(this.state, dt, input, this.bus, simTimeMs, this.grid);
+    stepBags(this.state, dt, this.grid);
 
     // Milestone order, once these exist:
-    //   conveyor.step -> player.step -> vehicles.step -> containment.step
-    //   -> flightSchedule.step -> scoring.step -> announcements.step
+    //   vehicles.step -> flightSchedule.step -> scoring.step -> announcements.step
     // flightSchedule reads ONLY simTimeMs. It must never ask whether the player is
     // ready. GDD §31.1.7: never make a flight wait for task completion.
   }
 
   /** Debug: fast-forward simulation time without real frames. GDD §21.8. */
   skipMs(ms) {
-    return this.clock.skipMs(ms, (stepMs, t) => this.step(stepMs, t));
+    return this.clock.skipMs(ms, (stepMs, t) => this.step(stepMs, t, null));
   }
 
   get shiftRemainingMs() {
@@ -190,8 +241,10 @@ export class Game {
 
   _notify() { for (const fn of Array.from(this._listeners)) fn(this.state); }
 
-  /** Compact snapshot for the debug overlay and for tests. */
+  /** Compact snapshot for the debug overlay and for tests. Everything here is part of
+   *  the determinism contract: two runs of one seed must produce identical output. */
   describe() {
+    const p = this.state.player;
     return {
       mode: this.state.mode,
       seed: this.seed,
@@ -201,9 +254,18 @@ export class Game {
       paused: this.clock.paused,
       timeScale: this.clock.timeScale,
       clampedFrames: this.clock.clampedFrames,
-      worldDraws: this.rng.world.draws,
+      draws: { world: this.rng.world.draws, bags: this.rng.bags.draws, sim: this.rng.sim.draws },
       events: this.bus.emitted,
       frames: this.frames,
+      spawned: this.state.shift.spawned,
+      bags: Object.keys(this.state.bagsById).length,
+      byLocation: countByLocation(this.state),
+      player: { x: round4(p.x), y: round4(p.y), carrying: p.carryingBagId },
+      delivered: this.state.world.conveyor.delivered,
     };
   }
 }
+
+/* Positions are compared across runs for determinism; rounding keeps a last-bit float
+ * difference from reading as a failure while still catching any real divergence. */
+const round4 = (v) => Math.round(v * 10000) / 10000;

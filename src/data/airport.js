@@ -47,6 +47,26 @@ export const WALLS = [
   { id: 'room_e2', x: 34 - ROOM_T, y: DOOR.y1,  w: ROOM_T, h: 40 - DOOR.y1 },
 ];
 
+/* The inbound baggage conveyor. GDD §20.2: "one conveyor that emits bags according to
+ * the schedule". It enters through the west wall and runs east across the top of the
+ * sort room, dropping bags on the floor at its end — where they pile up if nobody
+ * clears them. That pile is the pressure; do not add a magic overflow bin. */
+export const CONVEYOR = {
+  id: 'conv_1',
+  x0: 4.6, y0: 13,
+  x1: 26,  y1: 13,
+  widthM: 1.4,
+  speedMps: 1.6,      // 21 m of belt = a 13 s ride, so a bag is visible well before it lands
+};
+CONVEYOR.lengthM = Math.hypot(CONVEYOR.x1 - CONVEYOR.x0, CONVEYOR.y1 - CONVEYOR.y0);
+
+/** Marked floor staging, one pad per gate. GDD §7.3: "Sorting is physical placement onto
+ *  marked carts or staging zones." Carts land in Milestone 2 and will park on these. */
+export const STAGING_PADS = [
+  { id: 'pad_gate_1', gateId: 'gate_1', label: 'GATE 1', x: 7.5, y: 29, w: 9, h: 8 },
+  { id: 'pad_gate_2', gateId: 'gate_2', label: 'GATE 2', x: 20,  y: 29, w: 9, h: 8 },
+];
+
 /** Painted markings — presentation only, never collision. */
 export const MARKINGS = [
   { kind: 'lane',  x: 56, y: 4,  w: 10, h: 62 },          // service road centreline runs here
@@ -58,7 +78,7 @@ export const MARKINGS = [
 /** Named points later milestones attach entities to. Declared now so the geometry is
  *  locked and the walk/drive distances below are meaningful. */
 export const ANCHORS = {
-  conveyorEnd:  { x: 10, y: 24 },   // where bags land in the sort room  (M1)
+  conveyorEnd:  { x: 26, y: 13 },   // where bags land in the sort room  (M1)
   sortDoor:     { x: 35, y: 23 },   // sort room <-> staging             (M0 route measure)
   cartPark:     { x: 44, y: 22 },   // cart staging                      (M2)
   tractorPark:  { x: 44, y: 34 },   // tractor spawn                     (M2)
@@ -106,6 +126,12 @@ export function zoneAt(x, y) {
 }
 
 export const zoneById = (id) => ZONES.find((z) => z.id === id) || null;
+
+/** Which staging pad, if any, a point sits on. */
+export function padAt(x, y) {
+  for (const p of STAGING_PADS) if (rectContains(p, x, y)) return p;
+  return null;
+}
 
 /** Straight-line metres between two anchors. Used to sanity-check GDD §8.3: the route
  *  must be long enough that transport planning matters, short enough that a wasted trip

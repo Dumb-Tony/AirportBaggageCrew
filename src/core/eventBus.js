@@ -15,9 +15,14 @@ export const EVENTS = Object.freeze({
   SIM_PAUSED:           'SIM_PAUSED',
   SIM_RESUMED:          'SIM_RESUMED',
   MODE_CHANGED:         'MODE_CHANGED',
-  // Reserved for their milestones (GDD §21.5). Not emitted yet.
+  // Milestone 1.
   BAG_SPAWNED:          'BAG_SPAWNED',
+  BAG_LEFT_CONVEYOR:    'BAG_LEFT_CONVEYOR',
+  BAG_PICKED_UP:        'BAG_PICKED_UP',
+  BAG_RELEASED:         'BAG_RELEASED',
+  BAG_THROWN:           'BAG_THROWN',
   BAG_SCANNED:          'BAG_SCANNED',
+  // Reserved for their milestones (GDD §21.5). Not emitted yet.
   BAG_PLACED_IN_CART:   'BAG_PLACED_IN_CART',
   BAG_ENTERED_HOLD:     'BAG_ENTERED_HOLD',
   BAG_LEFT_HOLD:        'BAG_LEFT_HOLD',

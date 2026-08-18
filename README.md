@@ -7,12 +7,12 @@ A chaotic co-op game about an underqualified ground-handling crew. Built from
 [`GDD.md`](GDD.md) — the Master GDD is the authority on this project; this README covers
 how to run it and what is actually built.
 
-**Current state: Milestone 0 — skeleton and design locks. 117 assertions green.**
-There is no player, no bag, no cart, no flight yet. What exists is the spine everything
-else hangs off: the simulation clock, input, seeded RNG, the state boundary, the airport
-map, pause/restart, and a developer overlay.
+**Current state: Milestone 1 — the bag feels good. 242 assertions green.**
+Bags arrive on a conveyor, carry identity, and can be picked up, carried, thrown,
+scanned and sorted onto marked staging pads. There is no cart, no tractor and no flight
+schedule yet — those are Milestones 2 and 3.
 
-![The regional airport at Milestone 0](docs/m0-airport.png)
+![Sorting bags onto the gate pads, with a wrong-pad scan](docs/m1-sorting.png)
 
 ---
 
@@ -27,21 +27,27 @@ That serves the game on `http://localhost:8361/` and opens a tab.
 **The page must be served over http — it cannot be opened from disk.** The GDD (§21.1)
 asks for both "runs by opening `index.html`" and "plain JavaScript ES modules"; those two
 are mutually exclusive, because browsers block module loads on `file://` under CORS.
-Modules won, since the GDD's whole architecture section depends on them. `play.bat` is
-the substitute, and the page prints a clear message if you open it from disk anyway.
+Modules won, since the whole architecture section depends on them. `play.bat` is the
+substitute, and the page prints a clear message if you open it from disk anyway.
 
 ## Controls
 
-| Action | Key |
+| Action | Input |
 |---|---|
+| Move | `W` `A` `S` `D` or arrow keys |
+| Aim | Mouse, or your direction of travel if you never touch it |
+| Pick up / put down | `E` |
+| Throw | Hold `Space`, release |
+| Scan | `Q` |
 | Start shift / pause / resume | `Esc` |
-| Restart shift (from the pause screen only) | `R` |
+| Restart shift (pause screen only) | `R` |
 | Developer overlay | `F3` |
 
 Inside the overlay: `B` interaction bounds · `G` grid · `[` `]` time scale · `.` skip 10 s.
 
-Movement, grab, scan, interact, throw and driving are bound already
-(`src/core/input.js`) but have nothing to act on until Milestone 1.
+`F` (interact) and the vehicle bindings exist but have nothing to act on until
+Milestone 2. The GDD (§17.1) flags that grab and throw conflict if both sit on the mouse;
+they are split across `E` and `Space` here for that reason.
 
 ## Test it
 
@@ -54,7 +60,7 @@ suite into a scratch copy of the page, serves it, drives it in headless Chrome, 
 the dumped DOM. Exit 0 means green.
 
 ```bash
-tools\test.ps1 -Only m0
+tools\test.ps1 -Only m1
 ```
 
 Diagnostics, which measure rather than gate:
@@ -64,7 +70,7 @@ tools\smoketest.ps1 -Tests tools\_raf.js
 ```
 
 ```bash
-tools\shot.ps1 -Setup tools\_shot-playing.js -Out docs\m0-airport.png
+tools\shot.ps1 -Setup tools\_shot-m1.js -Out docs\m1-sorting.png
 ```
 
 ---
@@ -91,12 +97,28 @@ monetisation.
 | # | Name | State |
 |---|---|---|
 | 0 | Skeleton and design locks | **done** — 117 assertions |
-| 1 | The bag feels good | next |
-| 2 | Transport | |
-| 3 | Sacred schedule | |
-| 4 | Outcomes and pressure | |
-| 5 | Onboarding and juice | |
+| 1 | The bag feels good | **done** — 125 assertions |
+| 2 | Transport — carts, hitching, the tractor | next |
+| 3 | Sacred schedule — flight states, board, departures | |
+| 4 | Outcomes and pressure — scoring, report, replay | |
+| 5 | Onboarding and juice — audio, hints, accessibility | |
 | 6 | Balance and hardening | |
+
+## What Milestone 1 measures
+
+The exit criterion is "moving and sorting ten bags is reliable and pleasant". Reliable is
+testable; pleasant is not, so the feel numbers are measured and printed by the suite
+rather than assumed:
+
+| | |
+|---|---|
+| Throw distance, normal bag | 1.4 m tapped, 12.1 m fully charged |
+| Throw distance, fully charged | 3.8 m heavy · 16.8 m light |
+| Two seconds of walking | 8.1 m empty-handed · 5.1 m carrying a heavy bag |
+| A bag thrown at 8 m/s | slides 1.35 s before stopping |
+| Conveyor | 21 m of belt at 1.6 m/s — a 13 s ride |
+| Authored shift | 50 bags across 3 flights; heavy bags 6% AB221, 31% MC184, 39% SK307 |
+| 100 loose bags | 0.28 ms per simulation step, against a 16.67 ms budget |
 
 ## Layout
 
@@ -106,35 +128,44 @@ src/
   main.js         bootstrap and the only rAF loop
   config.js       every tuning number
   game.js         authoritative state, fixed-step driver, pause/restart
-  core/           clock · input · eventBus · rng
-  data/           airport.js — the map, as data plus pure geometry helpers
+  core/           clock · input · eventBus · rng · grid
+  data/           airport.js — the map · flights.js — the authored shift
+  entities/       bag · player · conveyor
+  systems/        containment · baggageFlow · interaction · physics
   render/         camera · renderer (Canvas 2D)
-  ui/             hud.js — DOM/CSS panels
+  ui/             hud.js · scannerCard.js
   dev/            debugOverlay.js — F3, never player-facing
-tools/            serve · smoketest · test · shot · m0-tests · diagnostics
+tools/            serve · smoketest · test · shot · m0/m1 suites · diagnostics
 docs/             screenshots
 ```
 
-The GDD's suggested tree (§21.2) also lists `core/stateMachine.js`, `entities/`,
-`systems/`, `ui/flightBoard.js`, `ui/scannerCard.js`, `ui/shiftReport.js` and
-`data/flights.js`. Those are deliberately absent: GDD §31.1.3 asks for clean boundaries
-rather than half-built features, so each file arrives with the milestone that fills it.
+The suggested tree in GDD §21.2 also lists `core/stateMachine.js`, `entities/cart.js`,
+`entities/tractor.js`, `entities/aircraft.js`, `systems/flightSchedule.js`,
+`systems/scoring.js`, `systems/announcements.js`, `systems/save.js` and three more UI
+panels. Those are deliberately absent: GDD §31.1.3 asks for clean boundaries rather than
+half-built features, so each file arrives with the milestone that fills it. The GDD
+`systems/baggageFlow.js` is split here into `containment.js` (the one writer of a bag
+location) and `baggageFlow.js` (spawning and loose-bag movement).
 
 ---
 
-## Known limitations at Milestone 0
+## Known limitations at Milestone 1
 
-- **No gameplay.** By design. Milestone 0's exit criterion is a stable blank simulation
-  with pause, restart and a deterministic seed.
+- **No carts, tractor, aircraft or flight schedule.** Bags can be sorted onto the two
+  marked staging pads, and that is as far as the operation goes. Flight records exist as
+  static data so a tag has something to say; nothing advances or departs.
 - **The shift clock runs past its end.** The end-of-shift transition and report land with
-  Milestone 4; today the clock simply keeps counting and `shiftRemainingMs` reads 0.
+  Milestone 4; today the clock keeps counting and `shiftRemainingMs` reads 0.
+- **No audio.** GDD §18 wants a scanner beep, a wrong-buzz and escalating announcements;
+  every one of those cues is visual-only until Milestone 5.
+- **Stacking is separation, not physics.** Bags push each other apart on the floor; they
+  do not stack into a pile with height. GDD §6.4 explicitly permits this.
 - **The live render loop is only partly provable in tests.** Headless Chrome in
   `--dump-dom` mode delivers 1–3 `requestAnimationFrame` callbacks in total and then
-  stops — measured across three flag sets with `tools\_raf.js`. The suite therefore
-  asserts that the real loop ran at boot and painted, then drives `game.frame()`
-  directly — the same entry point the rAF callback calls. That the browser *keeps*
-  calling it is five lines in `main.js`, checked by eye in a real browser.
-- **No audio.** GDD §18 audio lands with Milestone 5.
+  stops — measured across three flag sets with `tools\_raf.js`. The suites assert that
+  the real loop ran at boot and painted, then drive `game.frame()` directly — the same
+  entry point the rAF callback calls. That the browser *keeps* calling it is five lines
+  in `main.js`, checked by eye in a real browser.
 
 ## Reuse
 

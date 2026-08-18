@@ -16,6 +16,13 @@ Dev-wide catalog of what already exists and where to copy it from.
   `Camera` + `Renderer`, title/pause HUD, F3 developer overlay, crash banner,
   focus-loss auto-pause, and the headless-Chrome test harness.
   **117 assertions** + `docs/m0-airport.png`.
+- 2026-08-18 — **M1 DONE.** The bag feels good. Bags with identity and one authoritative
+  location, `containment.js` as the only writer of it, the conveyor, the verbs
+  (grab / carry / put down / charge-throw / scan), arcade physics, a spatial grid, the
+  scanner card, the authored 50-bag timetable as static data, a following camera, and
+  the held-object + prompt HUD. Measured: full throw 12.1 m normal / 3.8 m heavy /
+  16.8 m light; two seconds of walking 8.1 m empty vs 5.1 m carrying heavy; 100 loose
+  bags cost 0.28 ms per step. **125 assertions, 242 total** + `docs/m1-sorting.png`.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -59,6 +66,30 @@ Dev-wide catalog of what already exists and where to copy it from.
   does not block.
 - **The event log is bounded** (`CONFIG.debug.eventLogSize`). A ten-minute shift with
   100 bags emits thousands of events; GDD §24.1 forbids unbounded logs.
+- **`systems/containment.js` is the ONLY code that may assign `bag.location`.** Carts
+  (M2), holds and `departed` (M3) all hang off `moveBag()` and inherit its proof.
+  `conveyor.bagIds` and `player.carryingBagId` are DERIVED indexes — never a second
+  source of truth. `assertContainment()` proves they still agree; run it after any new
+  way of moving a bag, and add the new location type to `LOCATION_TYPES` first or
+  `moveBag` will throw (deliberately).
+- **`Game.step()` order is load-bearing**, and the comment in it says why: spawn → belt
+  → rebuild grid → player → interaction → loose bags. Targeting needs the grid to exist;
+  the carried bag follows the hands, so the player must have moved first.
+- **A carried bag is PINNED, not simulated.** `stepPlayer` writes its position every
+  step from the hands. `stepBags` only integrates bags whose location is `floor`. That
+  split is what makes "exactly one authoritative location" cheap to honour.
+- **Body colour is deliberately NOT the flight.** GDD §7.2 forbids colour as the only
+  channel, so a tag is three channels — destination code, flight colour, flight icon —
+  and the suitcase colour is cosmetic noise. A player who learns to sort by "the red
+  ones" has learned a lie. m1 C6 asserts colours are shared across flights.
+- **The scanner reports and never vetoes** (GDD §7.1, §31.1.8). It must never move a
+  bag, block a placement, or correct a mistake. m1 G18 asserts a wrong placement stands.
+- **The camera zoom is a READABILITY budget, not taste.** `CONFIG.render.viewWidthM`
+  is set so a 0.72 m bag is ~19 px and its tag text is legible. Widening it breaks
+  GDD §7.2. Every metre-space font in the renderer is sized against that zoom.
+- **The conveyor feed defers rather than stacking.** If the belt entry is occupied,
+  `spawnDueBags` breaks out and the schedule backs up. The belt never stops, so a
+  deferred bag always arrives — late, which is the correct behaviour.
 
 ## Gotchas already paid for
 
@@ -77,6 +108,22 @@ Dev-wide catalog of what already exists and where to copy it from.
 - **The suite must emit progressively.** `emit()` is called after every section, so a
   section that throws or hangs still reports how far it got. A blank dumped DOM teaches
   nothing; the first debugging round here was spent on exactly that.
+- **A suite of synchronous sections never yields to the event loop, so no animation
+  frame ever runs.** `await` on a synchronous function only queues a MICROtask; rAF
+  callbacks are not microtasks. The m1 live section was silently testing a 1x1 unsized
+  canvas until it called `yieldToLoop()` first. m0 only escaped this because its
+  `await fetch` happened to yield. Any new suite with live assertions must yield first
+  and then assert the boot loop actually ran.
+- **A screenshot pose script must capture `game.state` AFTER `startShift()`.** `reset()`
+  replaces the state object, so a reference taken earlier points at a discarded one and
+  every edit vanishes without an error. The first M1 screenshot was posed entirely on a
+  dead object and looked merely "empty".
+- **Never write a rejection-sampling loop that fills a `Set` to a target count** unless
+  the pool is provably much larger than the count. `buildBagSchedule` picked 4 priority
+  bags from a 6-wide window that way; one edit to the twist numbers would have made it
+  spin forever. Shuffle a candidate pool and slice instead.
+- **Bash heredocs here break on apostrophes** — the command is wrapped in single quotes,
+  so prose files (README, CHANGELOG, this file) need the Write tool, not `cat <<EOF`.
 - `chrome.exe` is a GUI-subsystem binary: `$x = & chrome --dump-dom` captures **nothing**
   under PowerShell. Redirect to a file (`Start-Process -RedirectStandardOutput`).
 - PS 5.1 `Get-Content -Raw` defaults to **ANSI** — always pass `-Encoding UTF8` or a
@@ -92,9 +139,14 @@ Dev-wide catalog of what already exists and where to copy it from.
   §31.4 lets Claude choose the runner "provided launch remains simple and offline", so
   the runner is the headless-Chrome PowerShell harness copied from Something's
   Different. Suites live in `tools\`, not `tests\`.
-- **The suggested file tree is built lazily.** `entities/`, `systems/`,
-  `core/stateMachine.js`, `data/flights.js` and the three pending UI panels arrive with
-  the milestones that fill them, per §31.1.3.
+- **The suggested file tree is built lazily.** `core/stateMachine.js`, `entities/cart.js`,
+  `entities/tractor.js`, `entities/aircraft.js`, `systems/flightSchedule.js`,
+  `systems/scoring.js`, `systems/announcements.js`, `systems/save.js` and the three
+  pending UI panels arrive with the milestones that fill them, per §31.1.3.
+- **§21.2 `systems/baggageFlow.js` is split in two.** `containment.js` owns the location
+  invariant (the thing that must never be violated); `baggageFlow.js` owns spawning and
+  loose-bag movement. One file mixing an invariant with a simulation loop is how the
+  invariant gets bypassed "just this once".
 
 ## Open questions for later milestones
 
@@ -111,13 +163,18 @@ Dev-wide catalog of what already exists and where to copy it from.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (117 assertions), exit 0 = green
-tools\test.ps1 -Only m0     # one suite
+tools\test.ps1              # all suites (242 assertions), exit 0 = green
+tools\test.ps1 -Only m1     # one suite
 
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js     # is rAF usable under the harness
+tools\shot.ps1 -Setup tools\_shot-m1.js -Out docs\m1-sorting.png
 tools\shot.ps1 -Setup tools\_shot-playing.js -Out docs\m0-airport.png
 ```
+
+The m1 suite PRINTS its feel numbers (throw distances, walk speed carrying weight, heavy
+bag mix per flight, cost per step at 100 bags) on every run. When Milestone 6 tunes the
+game, those printed lines are the before/after evidence — read them, do not re-derive.
 
 In the browser console: `__ABC` exposes `game`, `camera`, `renderer`, `hud`, `debug`,
 `input` and `CONFIG`.
