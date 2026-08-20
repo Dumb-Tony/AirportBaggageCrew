@@ -82,6 +82,9 @@ export class Renderer {
     this.showBounds = false;
     this._draws = [];        // reused every frame; never reallocated in a steady state
     this.fx = new FX();
+    // GDD §16.6. Set by the bootstrap from the saved settings; the renderer never reads
+    // the settings object itself.
+    this.reducedMotion = false;
     this._patterns = null;   // built lazily: they need a live 2D context
     this._exhaustAccum = 0;
   }
@@ -494,8 +497,8 @@ export class Renderer {
     drawHoldDoor(ctx, ac, ac.holdOffsetX - 1.15, -1.25, 2.3, 1.15);
 
     // anti-collision strobe, on simulation time so it stops when the game does
-    if ((simTimeMsOf(this) % 1500) < 90) {
-      ctx.fillStyle = 'rgba(255,240,220,0.95)';
+    if (this.reducedMotion || (simTimeMsOf(this) % 1500) < 90) {
+      ctx.fillStyle = this.reducedMotion ? 'rgba(255,240,220,0.5)' : 'rgba(255,240,220,0.95)';
       ctx.beginPath(); ctx.arc(L / 2 - 1.2, top - 3.0, 0.28, 0, Math.PI * 2); ctx.fill();
     }
 
@@ -584,7 +587,7 @@ export class Renderer {
     }
 
     extrude(ctx, v.rot, L, sd, H.tractor * 0.28, '#6b3d0f', 0.2);
-    drawTractorBody(ctx, v, sd, state.simTimeMs, !!v.driverId);
+    drawTractorBody(ctx, v, sd, state.simTimeMs, !!v.driverId, !this.reducedMotion);
 
     if (!v.driverId && state.player.targetVehicleId === v.id) {
       ctx.strokeStyle = PALETTE.paint;

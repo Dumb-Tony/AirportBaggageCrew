@@ -48,6 +48,15 @@ Dev-wide catalog of what already exists and where to copy it from.
 - 2026-08-19 — **OBLIQUE 2.5D.** The presentation pass, on a playtest note that the
   straight-down view read as "dot on the map". See "The look" below.
   `docs/m5-oblique.png`, `docs/m5-oblique-sortroom.png`.
+- 2026-08-20 — **M5 DONE.** Onboarding and juice. `systems/audio.js` (WebAudio, inert
+  until a gesture arms it, subscribing to the same bus the effects use);
+  `systems/onboarding.js` (a seven-step rail over a completely live shift — no training
+  pauses, because the airport never waits); `ui/settings.js` (volumes, reduced motion,
+  text scale, guide toggle, and a schedule-pressure assist). Measured: a 200 s shift with
+  live audio attached and one with none produce byte-identical `describe()` snapshots;
+  600 live frames with audio wired in cost 0.020 ms each; the assist takes the shift from
+  8:07 to 12:49 without touching a verb. **100 assertions, 700 total** +
+  `docs/m5-first-minute.png`, `docs/m5-settings.png`.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -158,9 +167,44 @@ Dev-wide catalog of what already exists and where to copy it from.
 - **A gate is occupied for longer than acceptance-to-departure.** `standWindow()` widens
   it by the taxi-in and the pushback, and `gateConflicts()` compares THAT. The narrower
   comparison passed while SK307 was arriving before AB221 had left.
-- **Announcement copy must say what happened in words.** Until M5 brings audio, the
-  toasts are the only channel besides the board, and GDD §5.3/§16.3 forbid colour being
-  the only differentiator. Never write a toast whose meaning is in its tone.
+- **Announcement copy must say what happened in words.** GDD §5.3/§16.3 forbid colour
+  being the only differentiator, and the same now goes for sound: every audio cue has a
+  visual equivalent, so mute is a preference and not a handicap. Never write a toast whose
+  meaning is in its tone, and never add a cue that is only audible.
+- **Audio is the ONE subsystem allowed to touch real time**, because a WebAudio schedule
+  is measured in `AudioContext` seconds. It pays for that with three rules, and m5
+  section E enforces all three: it is inert until a user gesture arms it, it READS
+  simulation state and never writes to it, and every cue it makes is also visible. The
+  test that matters runs the same seeded shift twice — once with a live `Sfx` attached,
+  once with none — and demands the `describe()` snapshots match to the byte. If that ever
+  goes red, every other suite in the project becomes advisory.
+- **Every audio subscription is gated on `armed` at the subscription site**, not inside
+  `tone()`/`noise()`. Audio is unarmed for the whole title screen, and a shift emits
+  thousands of events; the panning arithmetic must not run for cues nobody can hear.
+- **The onboarding rail has NO TRAINING PAUSES and must never gain any.** A tutorial that
+  stopped the clock would teach a lie about the only thing the game is about (pillar 1,
+  §31.1.7). It is advisory text over a completely live shift.
+- **Every rail step asserts the STATE it wanted, never the route you took.** The
+  predicates read live game state, so a player who does things out of order collapses the
+  chain forward instead of deadlocking on a step they already satisfied. Something's
+  Different (M11) shipped a rail that tracked actions instead and deadlocked on any
+  unexpected play order. Satisfying a step also resets the stall timer — that is
+  deliberate, and it is why a screenshot pose has to run a frame BEFORE back-dating
+  `enteredAtMs`.
+- **The difficulty assist is a multiplier applied once, where the times are authored.**
+  `createFlights(state, assist)` scales every window in `scaleTimes`, so the board, the
+  countdowns and the derived shift end all follow with no system remembering to. Do not
+  scale a schedule value at any other read site, and never write difficulty into
+  `CONFIG` — it is deep-frozen for exactly this reason (GDD §31.1).
+- **Text scaling is one CSS variable, `--ts`, multiplying every `font-size` in
+  `styles.css`.** A new rule with a raw `font-size:14px` silently opts out of the setting;
+  write `font-size:calc(14px * var(--ts))`.
+- **Reduced motion is TWO switches, not one.** `renderer.fx.enabled` kills the particle
+  system and `renderer.reducedMotion` holds the tractor beacon and the aircraft strobe
+  steady. A dimmed strobe is still a strobe, so neither may be implemented as a fade.
+- **`state.settings` and `game.settings` are different objects.** `state.settings` is the
+  debug-overlay's `{ showGrid }`; `game.settings` is the player's saved preferences. The
+  collision is pre-existing and harmless, but read the receiver before assuming.
 
 ## Gotchas already paid for
 
@@ -197,6 +241,10 @@ Dev-wide catalog of what already exists and where to copy it from.
   asserted every bag is still `active` after a full shift; M3 made departures classify
   them, so the assertion was describing a world that no longer exists. That is a test to
   rewrite, not code to revert — but check which it is before touching either.
+- **Never assert a raw event COUNT either.** m5 E4 first demanded "more than 100 events
+  in 60 s" and measured 13 — the same mistake as assuming when a seeded bag spawns, worn
+  as a magnitude. Count the KINDS of event the test actually depends on, and assert those
+  are non-zero.
 - **A performance threshold that passes by five milliseconds is a flake.** m3 F13 first
   asserted a whole shift runs in under 3 s and measured 2995 ms. Assert the per-step cost
   against the frame budget, which is the number that means something, and print the total.
@@ -236,10 +284,9 @@ Dev-wide catalog of what already exists and where to copy it from.
   §31.4 lets Claude choose the runner "provided launch remains simple and offline", so
   the runner is the headless-Chrome PowerShell harness copied from Something's
   Different. Suites live in `tools\`, not `tests\`.
-- **The suggested file tree is built lazily.** `core/stateMachine.js`, `entities/cart.js`,
-  `entities/tractor.js`, `entities/aircraft.js`, `systems/flightSchedule.js`,
-  `systems/scoring.js`, `systems/announcements.js`, `systems/save.js` and the three
-  pending UI panels arrive with the milestones that fill them, per §31.1.3.
+- **The suggested file tree was built lazily**, per §31.1.3 — each file arrived with the
+  milestone that filled it. Only `core/stateMachine.js` is still missing and it never
+  will arrive: the flight lifecycle is a pure function of the clock and needs no machinery.
 - **§21.2 `systems/baggageFlow.js` is split in two.** `containment.js` owns the location
   invariant (the thing that must never be violated); `baggageFlow.js` owns spawning and
   loose-bag movement. One file mixing an invariant with a simulation loop is how the
@@ -323,11 +370,13 @@ second repo, no `dist/`. Pages takes ~30-60 s to rebuild.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (600 assertions), exit 0 = green
-tools\test.ps1 -Only m4     # one suite
+tools\test.ps1              # all suites (700 assertions), exit 0 = green
+tools\test.ps1 -Only m5     # one suite
 
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js     # is rAF usable under the harness
+tools\shot.ps1 -Setup tools\_shot-m5.js -Out docs\m5-first-minute.png
+tools\shot.ps1 -Setup tools\_shot-m5-settings.js -Out docs\m5-settings.png
 tools\shot.ps1 -Setup tools\_shot-m3.js -Out docs\m3-final-call.png
 tools\shot.ps1 -Setup tools\_shot-m2.js -Out docs\m2-transport.png
 tools\shot.ps1 -Setup tools\_shot-m1.js -Out docs\m1-sorting.png
@@ -340,7 +389,7 @@ step) on every run. When Milestone 6 tunes the game, those printed lines are the
 before/after evidence — read them, do not re-derive them.
 
 In the browser console: `__ABC` exposes `game`, `camera`, `renderer`, `hud`, `debug`,
-`input` and `CONFIG`.
+`input`, `sfx` and `CONFIG`.
 
 ## Testing (binding — GDD §28)
 

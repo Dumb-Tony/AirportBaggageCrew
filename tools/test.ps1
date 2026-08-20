@@ -4,7 +4,7 @@
 param([string]$Only = "")
 
 $root   = Split-Path $PSScriptRoot -Parent
-$suites = @("m0","m1","m2","m3","m4")
+$suites = @("m0","m1","m2","m3","m4","m5")
 if ($Only) { $suites = @($Only) }
 
 $failed = @()

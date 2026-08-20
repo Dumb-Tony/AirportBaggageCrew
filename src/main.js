@@ -16,6 +16,7 @@ import { Camera } from './render/camera.js';
 import { Renderer } from './render/renderer.js';
 import { Hud } from './ui/hud.js';
 import { DebugOverlay } from './dev/debugOverlay.js';
+import { Sfx } from './systems/audio.js';
 import { WORLD } from './data/airport.js';
 
 const canvas = document.getElementById('stage');
@@ -37,7 +38,35 @@ renderer.showGrid = CONFIG.render.showGrid;
 // Effects react to announced events rather than to the renderer diffing frames.
 renderer.attachBus(game.bus);
 
+/* Audio is INERT until a real user gesture arms it (GDD §21.1, and browser policy).
+   It subscribes to the same event bus the effects use, so a cue exists because the
+   simulation announced something — never because the renderer noticed a difference. */
+const sfx = new Sfx();
+sfx.attach(game.bus, () => camera);
+const armAudio = () => { if (sfx.arm()) applySettings(game.settings); };
+window.addEventListener('keydown', armAudio, { once: true });
+window.addEventListener('pointerdown', armAudio, { once: true });
+
+/* The bootstrap owns every setting that lives OUTSIDE the simulation — mix, particles,
+   text size. Game.applySettings persists them and calls back here; nothing in src/systems
+   reads a setting except the schedule assist, which is baked in at authoring time. */
+function applySettings(s) {
+  sfx.setVolume('master', s.master);
+  sfx.setVolume('sfx', s.sfx);
+  sfx.setVolume('ambience', s.ambience);
+  sfx.setMuted(s.muted);
+  // Reduced motion kills the particle system outright rather than slowing it: GDD §16.6
+  // asks for no flashing, and a dimmed strobe is still a strobe.
+  renderer.fx.enabled = !s.reducedMotion;
+  renderer.reducedMotion = !!s.reducedMotion;
+  document.body.classList.toggle('reduced-motion', !!s.reducedMotion);
+  document.documentElement.style.setProperty('--ts', String(s.textScale));
+}
+game.onSettingsChanged = applySettings;
+applySettings(game.settings);
+
 const input = new Input(window).attach();
+
 const hud   = new Hud(uiRoot, game);
 const debug = new DebugOverlay(uiRoot, game, renderer);
 
@@ -61,7 +90,8 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) game.
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Escape') {
     e.preventDefault();
-    if (game.state.mode === MODES.TITLE) startShift();
+    if (hud.settings.open) hud.settings.hide();
+    else if (game.state.mode === MODES.TITLE) startShift();
     else game.togglePause();
   }
   // Restart is gated behind the pause screen so a mistyped R cannot destroy a shift.
@@ -95,6 +125,7 @@ function frame(now) {
   camera.follow(game.state.player.x, game.state.player.y, Math.min(dt, 100) / 1000);
 
   renderer.render(game.state, Math.min(dt, 100) / 1000);
+  sfx.update(game.state, Math.min(dt, 100) / 1000);
   hud.update();
   debug.update(dt);
 
@@ -104,4 +135,4 @@ requestAnimationFrame(frame);
 
 /* Debug/test handle. Mirrors `__SD` in Something's Different — the smoke-test harness
    drives the real objects through this rather than reaching into module scope. */
-window.__ABC = { game, camera, renderer, hud, debug, input, CONFIG, startShift };
+window.__ABC = { game, camera, renderer, hud, debug, input, CONFIG, startShift, sfx };

@@ -30,6 +30,8 @@ import { createFlights, stepFlights } from './systems/flightSchedule.js';
 import { resetAnnouncements, announce } from './systems/announcements.js';
 import { createScore, createStats, stepScoring, buildReport } from './systems/scoring.js';
 import { SaveSystem } from './systems/save.js';
+import { createGuide, stepGuide, resetGuide } from './systems/onboarding.js';
+import { DEFAULT_SETTINGS } from './ui/settings.js';
 import { stepInteraction } from './systems/interaction.js';
 import { countByLocation } from './systems/containment.js';
 import { createCart } from './entities/cart.js';
@@ -103,6 +105,7 @@ export function createInitialState(seed, seedLabel) {
     },
 
     scan: null,           // the live scanner card, or null
+    guide: null,          // mirror of Game.guideView, for readers that only see state
     score: createScore(),
     stats: createStats(),
     report: null,         // built once, when the shift ends
@@ -117,6 +120,11 @@ export class Game {
     // Storage is injectable so the suite runs against a fake and never writes a high
     // score into the real browser while testing.
     this.save = storage === undefined ? new SaveSystem() : new SaveSystem(storage);
+    // Settings live on the Game, not in the per-shift state: they survive a restart,
+    // and one of them (the assist) has to be read while the shift is being authored.
+    this.settings = { ...DEFAULT_SETTINGS, ...(this.save.loadSettings() || {}) };
+    this.guide = createGuide();
+    this.guide.enabled = !!this.settings.guide;
     this.bus = new EventBus({ logSize: CONFIG.debug.eventLogSize });
     this.clock = new GameClock({ stepMs: CONFIG.sim.stepMs, maxFrameMs: CONFIG.sim.maxFrameMs });
     this.grid = new SpatialGrid(WORLD.widthM, WORLD.heightM, CONFIG.grid.cellM);
@@ -138,6 +146,23 @@ export class Game {
   /** Seed from a label so a named shift is reproducible without carrying a number. */
   static seedFromLabel(label) { return hashStr(label); }
 
+  /**
+   * Merge a settings change, persist it, and let the bootstrap apply the parts that live
+   * outside the simulation (volumes, motion, text size).
+   *
+   * The ASSIST is deliberately not applied mid-shift: it rewrites the flight timetable,
+   * and moving a departure the player is already racing would be worse than waiting.
+   * It takes effect on the next shift, and the panel says so.
+   */
+  applySettings(patch) {
+    Object.assign(this.settings, patch);
+    this.save.saveSettings(this.settings);
+    if ('guide' in patch) this.guide.enabled = !!patch.guide;
+    if (this.onSettingsChanged) this.onSettingsChanged(this.settings, patch);
+    this._notify();
+    return this.settings;
+  }
+
   /** clock.paused is a FUNCTION of mode and must never be set independently. Without
    *  this, a freshly constructed game sat on the title screen with a running clock and
    *  the shift silently burned time behind the title card. Caught by m0 C3. */
@@ -152,7 +177,11 @@ export class Game {
     // Flights need the timetable, because expectedCount counts bags that were scheduled
     // whether or not the conveyor ever gets to them.
     resetAnnouncements();
-    const { flightsById, aircraftById } = createFlights(this.state);
+    // GDD §16.6's difficulty assist: schedule pressure, and nothing else. It stretches
+    // the authored times at the ONE place they are turned into a runtime flight — a
+    // multiplier at the read site, never an assignment into CONFIG, which is frozen for
+    // exactly this reason.
+    const { flightsById, aircraftById } = createFlights(this.state, this.settings.assist || 1);
     this.state.flightsById = flightsById;
     this.state.aircraftById = aircraftById;
 
@@ -193,6 +222,8 @@ export class Game {
   /** Restart straight into play, skipping the title screen. */
   startShift(seed = this.seed) {
     this.reset(seed, this.seedLabel);
+    resetGuide(this.guide, !!this.settings.guide);
+    this.guideView = null;
     this.setMode(MODES.PLAYING);
     return this;
   }
@@ -285,6 +316,11 @@ export class Game {
     // Scoring is a PULL pass over flights that have evaluated but not been scored, so
     // it cannot double-count and does not care what order anything happened in.
     stepScoring(this.state, this.bus, simTimeMs);
+
+    // The guide advances on SIMULATION time, so its stall timer freezes with a pause
+    // rather than deciding you are stuck while the game is stopped.
+    this.guideView = stepGuide(this.guide, this.state);
+    this.state.guide = this.guideView;
 
     if (simTimeMs >= this.state.shift.endTimeMs) this.endShift(simTimeMs);
   }

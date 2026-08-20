@@ -1,5 +1,64 @@
 # Changelog
 
+## Milestone 5 — onboarding and juice — 2026-08-20
+
+**100 assertions, 700 total.** Exit criterion: *uncoached playtesters complete the core
+loop.* The three things standing between a stranger and that loop were silence, no
+teaching, and no way to turn the pressure down. All three are now fixed.
+
+**Audio — `systems/audio.js`.** The game had no sound at all; every GDD §18 cue was
+visual-only. Now: bags thump off the belt and onto the floor, the scanner beeps and
+chirps or buzzes depending on the verdict, hitching clunks, the tractor engine pitches
+with its own speed, flight transitions chime and escalate, and hold closing lands as a
+low sawtooth. Three continuous beds — belt, ramp, engine — sit under it. `tone` and
+`toneP` are copied from `Chameleon\chameleon3d.html:2190`, keeping the names.
+
+Three rules hold it in place, and the suite enforces each:
+
+- **Inert until armed.** No `AudioContext` exists until a real user gesture, and every
+  subscription drops the event outright while unarmed — so the title screen costs nothing.
+- **Audio reads the simulation and never writes to it.** m5 section E runs the same
+  200-second shift twice, once with a live `Sfx` attached and once with none, and demands
+  the `describe()` snapshots match to the byte. They do. Arming, updating, muting and
+  tearing the graph down all leave the simulation identical.
+- **Every cue has a visual equivalent.** Nothing in the game is audible-only, which is
+  what makes the mute switch a preference rather than a handicap.
+
+**The first minute — `systems/onboarding.js`.** A seven-step rail: move, grab, scan,
+cart, drive, hitch, load. **There are no training pauses**, because there cannot be — the
+airport never waits (GDD pillar 1), and a tutorial that stops the clock would teach a lie
+about the only thing the game is about. So the rail is advisory text over a completely
+live shift, and the flights are already running while you learn to pick a bag up.
+
+Every step asserts **the state it wanted, never the route you took**, so a player who
+does things out of order collapses the chain forward instead of deadlocking on a step
+they already satisfied. GDD §16.5 asks for hints on a stall rather than up front: after
+eleven seconds on one step, a second line appears with the specific thing you are missing.
+
+**Accessibility and settings — `ui/settings.js`.** GDD §16.6 asks for eight things. Four
+were already true by construction — keyboard-only operation, colourblind-safe tag codes
+and icons, visual equivalents for every sound, and key bindings that are already data.
+The panel adds the other four: per-category volumes with a mute, reduced motion, text
+scaling, and a **difficulty assist that alters schedule pressure without touching a
+single verb**.
+
+The assist is a multiplier applied once, where the flight times are authored — so the
+board, the countdowns and the derived shift end all follow automatically. Standard is the
+authored 8:07; Unhurried stretches it to 12:49. Nothing else changes: same fifty bags,
+same order, same weights, same reach. `CONFIG` stays deep-frozen.
+
+Reduced motion kills the particle system outright and holds the tractor beacon and the
+aircraft strobe steady, rather than dimming them — a faint strobe is still a strobe. Text
+scaling runs through a single `--ts` CSS multiplier that every font size in the stylesheet
+now reads.
+
+Settings persist through `SaveSystem`, and are reachable from both the title card and the
+pause screen.
+
+![The rail at step two while AB221 counts down to hold closing](docs/m5-first-minute.png)
+
+![The settings panel](docs/m5-settings.png)
+
 ## Visual overhaul — 2026-08-19
 
 Playtest note: *"I like the angle better, but it's still just basic geometric shapes with

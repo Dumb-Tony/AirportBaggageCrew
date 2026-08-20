@@ -229,7 +229,7 @@ export function drawWheel(ctx, x, y, r, angle) {
 /* ── the tractor ─────────────────────────────────────────────────────────── */
 
 /** Bodywork, cab, seat and a beacon that flashes on simulation time. */
-export function drawTractorBody(ctx, v, sd, simTimeMs, driven) {
+export function drawTractorBody(ctx, v, sd, simTimeMs, driven, flashing = true) {
   const L = CONFIG.tractor.lengthM, deckY = -CONFIG.tractor.lengthM * 0.28;
 
   ctx.save();
@@ -270,8 +270,10 @@ export function drawTractorBody(ctx, v, sd, simTimeMs, driven) {
   ctx.lineTo(0.42, deckY - 0.95); ctx.lineTo(0.42, deckY);
   ctx.stroke();
 
-  // amber beacon. Flashes on SIMULATION time, so it stops when the game does.
-  const flash = 0.35 + 0.65 * Math.pow(Math.max(0, Math.sin(simTimeMs / 150)), 6);
+  // amber beacon. Flashes on SIMULATION time, so it stops when the game does. Under
+  // reduced motion it holds steady rather than dimming — GDD §16.6 asks for no flashing,
+  // and a faint strobe is still a strobe.
+  const flash = flashing ? 0.35 + 0.65 * Math.pow(Math.max(0, Math.sin(simTimeMs / 150)), 6) : 0.6;
   ctx.fillStyle = `rgba(255,176,48,${flash.toFixed(3)})`;
   ctx.beginPath(); ctx.arc(0, deckY - 1.06, 0.13, 0, Math.PI * 2); ctx.fill();
   if (driven) {

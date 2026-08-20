@@ -60,9 +60,16 @@ export function msToNext(times, simTimeMs) {
 }
 
 /** Build the runtime flight records and their aircraft. Shape follows GDD §22.2. */
-export function createFlights(state) {
+/**
+ * @param {number} assist  GDD §16.6 schedule-pressure assist. 1 is the authored shift;
+ *   above 1 stretches every window. Applied HERE, once, so every downstream reader —
+ *   the board, the countdowns, the derived shift end — follows automatically and no
+ *   system has to remember to scale anything.
+ */
+export function createFlights(state, assist = 1) {
   const flightsById = {};
   const aircraftById = {};
+  const k = assist > 0 ? assist : 1;
 
   for (const def of FLIGHT_DEFS) {
     const stand = standForGate(def.gateId);
@@ -77,8 +84,8 @@ export function createFlights(state) {
       gateId: def.gateId,
       aircraftId: def.aircraftId,
       tag: { ...def.tag },
-      state: stateAt(def.times, 0),
-      times: { ...def.times },
+      state: stateAt(scaleTimes(def.times, k), 0),
+      times: scaleTimes(def.times, k),
 
       expectedBagIds: [],     // grows as bags spawn — GDD §22.2
       loadedBagIds: [],       // what is physically in the hold right now
@@ -244,4 +251,13 @@ function toneFor(state) {
   if (state === 'HOLD_CLOSING') return 'bad';
   if (state === 'BAG_ACCEPTANCE') return 'info';
   return 'info';
+}
+
+/** Stretch every authored moment by the assist. Rounded, so the schedule stays on whole
+ *  milliseconds and two runs of one seed still land on identical ticks. */
+function scaleTimes(times, k) {
+  if (k === 1) return { ...times };
+  const out = {};
+  for (const key of Object.keys(times)) out[key] = Math.round(times[key] * k);
+  return out;
 }

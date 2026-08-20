@@ -14,6 +14,7 @@ import { GameClock } from '../core/clock.js';
 import { ScannerCard } from './scannerCard.js';
 import { FlightBoard } from './flightBoard.js';
 import { ShiftReport } from './shiftReport.js';
+import { SettingsPanel } from './settings.js';
 import { visibleAnnouncements } from '../systems/announcements.js';
 import { verdictFor } from '../systems/scoring.js';
 
@@ -43,6 +44,8 @@ export class Hud {
 
       <div class="toasts" id="hudToasts" role="status" aria-live="polite"></div>
 
+      <div class="guide" id="hudGuide" role="status" aria-live="polite"></div>
+
       <div class="hud-bottom" id="hudBottom">
         <div class="held" id="hudHeld"></div>
         <div class="prompt" id="hudPrompt"></div>
@@ -52,8 +55,9 @@ export class Hud {
         <div class="card">
           <h1>Airport Baggage Crew</h1>
           <p class="tag">Simple physical work, hilarious logistical panic.</p>
-          <p class="milestone">Milestone 4 &mdash; outcomes and pressure</p>
+          <p class="milestone">Milestone 5 &mdash; onboarding and juice</p>
           <button class="primary" id="btnStart">Start shift</button>
+          <button id="btnTitleSettings">Settings</button>
           <p class="hint"><kbd>WASD</kbd> move &middot; <kbd>E</kbd> grab, load, hitch &middot;
              <kbd>F</kbd> drive, placard &middot; <kbd>Space</kbd> throw &middot;
              <kbd>Q</kbd> scan &middot; <kbd>Esc</kbd> pause</p>
@@ -70,6 +74,7 @@ export class Hud {
           <p class="tag">Simulation clock stopped. Nothing is moving.</p>
           <button class="primary" id="btnResume">Resume</button>
           <button id="btnRestart">Restart shift</button>
+          <button id="btnSettings">Settings</button>
           <button id="btnQuit">Back to title</button>
         </div>
       </div>
@@ -80,11 +85,13 @@ export class Hud {
       top: $('hudTop'), time: $('hudTime'), total: $('hudTotal'),
       bottom: $('hudBottom'), held: $('hudHeld'), prompt: $('hudPrompt'),
       boardSlot: $('hudBoardSlot'), toasts: $('hudToasts'), score: $('hudScore'),
+      guide: $('hudGuide'),
       title: $('screenTitle'), pause: $('screenPause'),
     };
     this.scannerCard = new ScannerCard(this.root);
     this.board = new FlightBoard(this.el.boardSlot);
     this.report = new ShiftReport(this.root, this.game);
+    this.settings = new SettingsPanel(this.root, this.game);
 
     // onStart is set by the bootstrap so a restart can also snap the camera. Falling
     // back to game.startShift() keeps the HUD usable when constructed on its own.
@@ -93,6 +100,8 @@ export class Hud {
     $('btnResume').onclick  = () => this.game.setMode(MODES.PLAYING);
     $('btnRestart').onclick = start;
     $('btnQuit').onclick    = () => { this.game.reset(); this.game.setMode(MODES.TITLE); };
+    $('btnSettings').onclick      = () => this.settings.show();
+    $('btnTitleSettings').onclick = () => this.settings.show();
 
     this.el.total.textContent = GameClock.formatMs(this.game.state.shift.endTimeMs);
   }
@@ -200,6 +209,22 @@ export class Hud {
     this.board.update(state);
     this.scannerCard.update(state);
 
+    /* The first-minute rail — GDD §16.5. `state.guide` is null the moment the chain is
+       finished or the setting is off, so the rail removes itself and never becomes
+       furniture. The step number is shown because "3 of 7" is the difference between a
+       nag and a visibly ending sequence. */
+    const g = state.guide;
+    const guideKey = g ? `${g.id}|${g.hint ? 1 : 0}` : '';
+    if (guideKey !== this._lastGuide) {
+      this._lastGuide = guideKey;
+      this.el.guide.innerHTML = g
+        ? `<div class="guide-card"><span class="guide-n">${g.n}/${g.of}</span>` +
+          `<span class="guide-t">${g.text}</span>` +
+          (g.hint ? `<span class="guide-h">${g.hint}</span>` : '') + '</div>'
+        : '';
+      this.el.guide.classList.toggle('on', !!g);
+    }
+
     /* announcement toasts — GDD §5.3 channel two, and until Milestone 5 brings audio
        they are the ONLY way an escalation reaches a player looking at the ramp. */
     const live = visibleAnnouncements(state, state.simTimeMs);
@@ -227,6 +252,7 @@ export class Hud {
     this.scannerCard.destroy();
     this.board.destroy();
     this.report.destroy();
+    this.settings.destroy();
     this.root.innerHTML = '';
   }
 }

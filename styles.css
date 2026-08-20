@@ -15,6 +15,7 @@
   --st-scheduled:#5b8dd6; --st-loading:#5ec96a; --st-final:#f2c14e;
   --st-closing:#ff5a5a;   --st-departed:#6b6880;
 
+  --ts:1;
   --font-ui:Quicksand,'Segoe UI',system-ui,-apple-system,sans-serif;
   --font-display:'Baloo 2','Segoe UI',system-ui,sans-serif;
   --font-mono:ui-monospace,'Cascadia Mono',Consolas,monospace;
@@ -34,12 +35,12 @@ canvas{display:block;width:100%;height:100%}
   gap:18px;align-items:center;padding:10px 16px;
   background:linear-gradient(180deg,rgba(11,10,18,.88),rgba(11,10,18,0));}
 .hud-top.on{display:flex}
-.hud-label{font-size:11px;letter-spacing:.14em;color:var(--dim)}
+.hud-label{font-size:calc(11px * var(--ts));letter-spacing:.14em;color:var(--dim)}
 .hud-clock{display:flex;align-items:baseline;gap:7px;font-family:var(--font-mono)}
-.hud-time{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
-.hud-sep,.hud-total{color:var(--dim);font-size:14px}
+.hud-time{font-size:calc(22px * var(--ts));font-weight:700;font-variant-numeric:tabular-nums}
+.hud-sep,.hud-total{color:var(--dim);font-size:calc(14px * var(--ts))}
 .hud-slot{flex:1;display:flex;justify-content:flex-end}
-.hud-pending{font-size:11px;letter-spacing:.12em;color:#4a4660;
+.hud-pending{font-size:calc(11px * var(--ts));letter-spacing:.12em;color:#4a4660;
   border:1px dashed var(--line);border-radius:6px;padding:4px 9px}
 
 /* ── bottom bar: held object + contextual prompt (GDD §16.1, §16.2) ──────── */
@@ -47,32 +48,32 @@ canvas{display:block;width:100%;height:100%}
   flex-direction:column;align-items:center;gap:8px;padding:0 16px 18px;
   background:linear-gradient(0deg,rgba(11,10,18,.8),rgba(11,10,18,0));}
 .hud-bottom.on{display:flex}
-.held{display:none;align-items:center;gap:8px;font-size:14px;
+.held{display:none;align-items:center;gap:8px;font-size:calc(14px * var(--ts));
   background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:6px 14px}
 .held.on{display:flex}
 .held .chip{width:12px;height:12px;border-radius:3px;display:inline-block}
-.held .tagno{color:var(--dim);font-family:var(--font-mono);font-size:12px}
+.held .tagno{color:var(--dim);font-family:var(--font-mono);font-size:calc(12px * var(--ts))}
 .held .pri{background:var(--st-final);color:#231a04;border-radius:4px;
-  padding:1px 6px;font-size:10px;font-weight:800;letter-spacing:.08em}
+  padding:1px 6px;font-size:calc(10px * var(--ts));font-weight:800;letter-spacing:.08em}
 .held .hvy{background:var(--panel2);color:var(--dim);border-radius:4px;
-  padding:1px 6px;font-size:10px;font-weight:800;letter-spacing:.08em}
-.prompt{display:none;color:var(--dim);font-size:13px}
+  padding:1px 6px;font-size:calc(10px * var(--ts));font-weight:800;letter-spacing:.08em}
+.prompt{display:none;color:var(--dim);font-size:calc(13px * var(--ts))}
 .prompt.on{display:block}
 
 /* ── scanner card (GDD §7.1) ─────────────────────────────────────────────── */
 .scan-card{position:absolute;right:18px;top:132px;display:none;min-width:236px;
   background:var(--panel);border:1px solid var(--line);border-left-width:4px;
-  border-radius:10px;padding:12px 16px;font-family:var(--font-mono);font-size:13px;
+  border-radius:10px;padding:12px 16px;font-family:var(--font-mono);font-size:calc(13px * var(--ts));
   line-height:1.65;box-shadow:0 12px 34px rgba(0,0,0,.5)}
 .scan-card.on{display:block}
 .scan-card.neutral{border-left-color:var(--st-scheduled)}
 .scan-card.correct{border-left-color:var(--st-loading)}
 .scan-card.wrong{border-left-color:var(--coral)}
-.scan-card .scan-bag{font-size:16px;font-weight:700;letter-spacing:.04em}
+.scan-card .scan-bag{font-size:calc(16px * var(--ts));font-weight:700;letter-spacing:.04em}
 .scan-card .dot{color:var(--dim)}
 .scan-card .scan-clock{color:var(--st-final)}
 .scan-card .scan-verdict{margin-top:8px;padding-top:8px;border-top:1px solid var(--line);
-  font-size:11px;letter-spacing:.1em;color:var(--dim)}
+  font-size:calc(11px * var(--ts));letter-spacing:.1em;color:var(--dim)}
 .scan-card.correct .scan-verdict{color:var(--st-loading)}
 .scan-card.wrong .scan-verdict{color:var(--coral)}
 
@@ -83,18 +84,18 @@ canvas{display:block;width:100%;height:100%}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
   padding:34px 38px;max-width:560px;text-align:center;
   box-shadow:0 24px 60px rgba(0,0,0,.55)}
-.card h1{font-family:var(--font-display);font-size:40px;font-weight:800;
+.card h1{font-family:var(--font-display);font-size:calc(40px * var(--ts));font-weight:800;
   letter-spacing:-.01em;margin-bottom:6px}
-.card h2{font-family:var(--font-display);font-size:28px;font-weight:800;margin-bottom:6px}
-.card .tag{color:var(--dim);font-size:15px;margin-bottom:4px}
-.card .milestone{color:var(--lime);font-size:12px;letter-spacing:.12em;
+.card h2{font-family:var(--font-display);font-size:calc(28px * var(--ts));font-weight:800;margin-bottom:6px}
+.card .tag{color:var(--dim);font-size:calc(15px * var(--ts));margin-bottom:4px}
+.card .milestone{color:var(--lime);font-size:calc(12px * var(--ts));letter-spacing:.12em;
   text-transform:uppercase;margin:14px 0 20px}
-.card .hint{color:var(--dim);font-size:13px;margin-top:18px;line-height:1.6}
-.card .scope{color:#5f5b77;font-size:12px;margin-top:10px;line-height:1.6}
-kbd{font-family:var(--font-mono);font-size:11px;background:var(--panel2);
+.card .hint{color:var(--dim);font-size:calc(13px * var(--ts));margin-top:18px;line-height:1.6}
+.card .scope{color:#5f5b77;font-size:calc(12px * var(--ts));margin-top:10px;line-height:1.6}
+kbd{font-family:var(--font-mono);font-size:calc(11px * var(--ts));background:var(--panel2);
   border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px}
 
-button{font-family:var(--font-ui);font-size:15px;font-weight:700;cursor:pointer;
+button{font-family:var(--font-ui);font-size:calc(15px * var(--ts));font-weight:700;cursor:pointer;
   border-radius:9px;padding:11px 22px;margin:5px 4px 0;
   background:var(--panel2);color:var(--text);border:1px solid var(--line)}
 button:hover{border-color:var(--violet)}
@@ -104,7 +105,7 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 
 /* ── developer overlay (never player-facing — GDD §21.8) ─────────────────── */
 .debug{position:absolute;top:0;left:0;display:none;white-space:pre;
-  font-family:var(--font-mono);font-size:11px;line-height:1.45;
+  font-family:var(--font-mono);font-size:calc(11px * var(--ts));line-height:1.45;
   color:#5ce1e6;background:rgba(6,10,12,.86);border-right:1px solid #17414a;
   border-bottom:1px solid #17414a;padding:10px 14px;max-width:44ch;pointer-events:none}
 .debug.on{display:block}
@@ -117,7 +118,7 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 /* ── Milestone 3: flight board, toasts (GDD 16.2, 16.3, 5.3) ─────────────── */
 /* Every row spells its status out in words; colour is reinforcement, never the
    only channel. Turn these hues off and the board still reads. */
-.board{display:none;flex-direction:column;gap:3px;font-family:var(--font-mono);font-size:12px}
+.board{display:none;flex-direction:column;gap:3px;font-family:var(--font-mono);font-size:calc(12px * var(--ts))}
 .board.on{display:flex}
 .b-row{display:grid;grid-template-columns:10px 46px 34px 26px 108px auto auto;
   align-items:center;gap:8px;padding:4px 10px;border-radius:6px;
@@ -126,12 +127,12 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .b-num{font-weight:700}
 .b-dest{color:var(--dim)}
 .b-gate{color:var(--dim)}
-.b-state{font-size:10px;letter-spacing:.09em}
+.b-state{font-size:calc(10px * var(--ts));letter-spacing:.09em}
 .b-count{font-variant-numeric:tabular-nums;text-align:right}
 .b-of{color:var(--dim)}
 .b-clock{font-variant-numeric:tabular-nums;text-align:right;min-width:44px;color:var(--dim)}
 .b-clock.urgent{color:var(--st-final);font-weight:700}
-.b-done{color:var(--dim);font-size:11px;text-align:right}
+.b-done{color:var(--dim);font-size:calc(11px * var(--ts));text-align:right}
 
 .b-row.st-scheduled{border-left-color:var(--st-scheduled)}
 .b-row.st-accept{border-left-color:var(--st-scheduled)}
@@ -148,14 +149,14 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
   display:none;flex-direction:column;gap:6px;align-items:center;max-width:620px}
 .toasts.on{display:flex}
 .toast{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--st-scheduled);
-  border-radius:8px;padding:7px 15px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  border-radius:8px;padding:7px 15px;font-size:calc(13px * var(--ts));box-shadow:0 8px 24px rgba(0,0,0,.45)}
 .toast.good{border-left-color:var(--st-loading)}
 .toast.urgent{border-left-color:var(--st-final);font-weight:700}
 .toast.bad{border-left-color:var(--coral)}
 .prompt .warn{color:var(--coral)}
 
 /* ── Milestone 4: score readout and the shift report (GDD 11) ─────────────── */
-.hud-score{display:none;font-family:var(--font-mono);font-size:16px;font-weight:700;
+.hud-score{display:none;font-family:var(--font-mono);font-size:calc(16px * var(--ts));font-weight:700;
   font-variant-numeric:tabular-nums;color:var(--st-loading);
   background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
 .hud-score.on{display:inline-block}
@@ -168,14 +169,14 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .headline{display:flex;gap:14px;margin-bottom:20px}
 .hl{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
   padding:12px 14px;text-align:center}
-.hl-v{display:block;font-family:var(--font-mono);font-size:26px;font-weight:700;
+.hl-v{display:block;font-family:var(--font-mono);font-size:calc(26px * var(--ts));font-weight:700;
   font-variant-numeric:tabular-nums}
 .hl-v.bad{color:var(--coral)}
-.hl-of{font-size:15px;color:var(--dim)}
-.hl-l{display:block;font-size:11px;letter-spacing:.1em;color:var(--dim);margin-top:3px}
+.hl-of{font-size:calc(15px * var(--ts));color:var(--dim)}
+.hl-l{display:block;font-size:calc(11px * var(--ts));letter-spacing:.1em;color:var(--dim);margin-top:3px}
 
-.r-table{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:13px}
-.r-table th{text-align:left;font-size:10px;letter-spacing:.1em;color:var(--dim);
+.r-table{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:calc(13px * var(--ts))}
+.r-table th{text-align:left;font-size:calc(10px * var(--ts));letter-spacing:.1em;color:var(--dim);
   font-weight:400;padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
 .r-table td{padding:6px 8px 6px 0;border-bottom:1px solid rgba(51,47,71,.5)}
 .r-table .r-num{font-weight:700}
@@ -188,11 +189,54 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .r-table .r-pts.bad{color:var(--coral)}
 .r-table tr.perfect .r-num::after{content:' ★';color:var(--st-final)}
 
-.r-meta{color:var(--dim);font-size:11px;line-height:1.7;margin-top:14px}
+.r-meta{color:var(--dim);font-size:calc(11px * var(--ts));line-height:1.7;margin-top:14px}
 .oddities{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
-.odd{display:flex;justify-content:space-between;gap:16px;font-size:12px;padding:3px 0}
+.odd{display:flex;justify-content:space-between;gap:16px;font-size:calc(12px * var(--ts));padding:3px 0}
 .odd-l{color:var(--dim)}
 .odd-v{font-family:var(--font-mono);text-align:right}
-.best{margin-top:14px;font-size:12px;color:var(--dim);text-align:center}
+.best{margin-top:14px;font-size:calc(12px * var(--ts));color:var(--dim);text-align:center}
 .best.new{color:var(--st-final);font-weight:700}
 .report-card button{display:inline-block;margin-top:18px}
+
+/* ── Milestone 5: the first-minute rail (GDD §16.5) ──────────────────────── */
+/* Bottom-left, clear of the toasts (top-centre), the board (top-right) and the
+   held/prompt bar (bottom-centre). It is advisory text over a completely live
+   shift — there are no training pauses, so it must never sit where the ramp is. */
+.guide{position:absolute;left:16px;bottom:86px;display:none;max-width:340px}
+.guide.on{display:block}
+.guide-card{background:var(--panel);border:1px solid var(--line);
+  border-left:3px solid var(--violet);border-radius:10px;padding:11px 14px;
+  box-shadow:0 10px 28px rgba(0,0,0,.45)}
+.guide-n{display:block;font-family:var(--font-mono);font-size:calc(10px * var(--ts));
+  letter-spacing:.12em;color:var(--dim);margin-bottom:3px}
+.guide-t{display:block;font-size:calc(14px * var(--ts));line-height:1.45}
+.guide-h{display:block;margin-top:7px;padding-top:7px;border-top:1px solid var(--line);
+  font-size:calc(12px * var(--ts));color:var(--st-final);line-height:1.4}
+
+/* ── Milestone 5: settings (GDD §16.6) ───────────────────────────────────── */
+.settings{background:rgba(11,10,18,.86)}
+.set-card{max-width:520px;text-align:left}
+.set-card h2{text-align:center;margin-bottom:18px}
+.set-group{margin-bottom:18px}
+.set-head{font-size:calc(10px * var(--ts));letter-spacing:.14em;color:var(--dim);
+  padding-bottom:6px;margin-bottom:9px;border-bottom:1px solid var(--line)}
+.set-row{display:flex;align-items:center;gap:12px;padding:5px 0;
+  font-size:calc(13px * var(--ts));cursor:pointer}
+.set-l{flex:0 0 92px;color:var(--dim)}
+.set-row input[type=range]{flex:1;accent-color:var(--violet);cursor:pointer}
+.set-v{flex:0 0 34px;text-align:right;font-family:var(--font-mono);
+  font-variant-numeric:tabular-nums;color:var(--dim)}
+.set-check input{accent-color:var(--violet);width:16px;height:16px;cursor:pointer}
+.set-note{margin-top:8px;font-size:calc(11px * var(--ts));color:var(--dim);line-height:1.5}
+.set-assist{display:flex;gap:8px}
+.set-assist .assist{flex:1;display:block;text-align:left;padding:9px 11px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+  font-size:calc(12px * var(--ts));font-weight:400;color:var(--text)}
+.set-assist .assist b{display:block;font-size:calc(13px * var(--ts));margin-bottom:2px}
+.set-assist .assist span{color:var(--dim);line-height:1.35}
+.set-assist .assist.on{border-color:var(--violet);background:rgba(138,127,240,.16)}
+.set-card>button{display:block;margin:4px auto 0}
+
+/* The setting is an explicit choice; the media query above is the OS one. Both land on
+   the same rule, and neither overrides the other — whichever is true wins. */
+body.reduced-motion *{animation:none!important;transition:none!important}
