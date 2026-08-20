@@ -113,3 +113,43 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 
 /* Milestone 2 additions */
 .prompt .dim{color:#5f5b77}
+
+/* ── Milestone 3: flight board, toasts (GDD 16.2, 16.3, 5.3) ─────────────── */
+/* Every row spells its status out in words; colour is reinforcement, never the
+   only channel. Turn these hues off and the board still reads. */
+.board{display:none;flex-direction:column;gap:3px;font-family:var(--font-mono);font-size:12px}
+.board.on{display:flex}
+.b-row{display:grid;grid-template-columns:10px 46px 34px 26px 108px auto auto;
+  align-items:center;gap:8px;padding:4px 10px;border-radius:6px;
+  background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--dim)}
+.b-chip{width:10px;height:10px;border-radius:2px}
+.b-num{font-weight:700}
+.b-dest{color:var(--dim)}
+.b-gate{color:var(--dim)}
+.b-state{font-size:10px;letter-spacing:.09em}
+.b-count{font-variant-numeric:tabular-nums;text-align:right}
+.b-of{color:var(--dim)}
+.b-clock{font-variant-numeric:tabular-nums;text-align:right;min-width:44px;color:var(--dim)}
+.b-clock.urgent{color:var(--st-final);font-weight:700}
+.b-done{color:var(--dim);font-size:11px;text-align:right}
+
+.b-row.st-scheduled{border-left-color:var(--st-scheduled)}
+.b-row.st-accept{border-left-color:var(--st-scheduled)}
+.b-row.st-loading{border-left-color:var(--st-loading)}
+.b-row.st-final{border-left-color:var(--st-final)}
+.b-row.st-final .b-state{color:var(--st-final)}
+.b-row.st-closing{border-left-color:var(--coral)}
+.b-row.st-closing .b-state{color:var(--coral)}
+.b-row.st-departed{border-left-color:var(--st-departed);opacity:.55}
+@keyframes b-pulse{0%,100%{background:var(--panel)}50%{background:#2a2033}}
+.b-row.pulse{animation:b-pulse 1.1s ease-in-out infinite}
+
+.toasts{position:absolute;left:50%;top:64px;transform:translateX(-50%);
+  display:none;flex-direction:column;gap:6px;align-items:center;max-width:620px}
+.toasts.on{display:flex}
+.toast{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--st-scheduled);
+  border-radius:8px;padding:7px 15px;font-size:13px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.toast.good{border-left-color:var(--st-loading)}
+.toast.urgent{border-left-color:var(--st-final);font-weight:700}
+.toast.bad{border-left-color:var(--coral)}
+.prompt .warn{color:var(--coral)}

@@ -24,6 +24,7 @@ import { chargeFrac } from '../entities/player.js';
 import { cartContains, cartRoomFor, nextPlacard } from '../entities/cart.js';
 import { dismountPoint } from '../entities/tractor.js';
 import { hitchCandidate, hitch, unhitchTail, trainOf } from './hitching.js';
+import { holdContains, aircraftHoldZone } from '../entities/aircraft.js';
 
 const FLIGHT_IDS = FLIGHT_DEFS.map((f) => f.id);
 
@@ -72,6 +73,22 @@ export function findCart(state) {
   return best;
 }
 
+/**
+ * The aircraft whose hold the player is standing in, present or not, open or not.
+ *
+ * Returned even when the hold is SHUT, so the prompt can say "hold closed" rather than
+ * going blank — GDD §5.3 wants the player to understand why an action is unavailable,
+ * not to guess.
+ */
+export function findHold(state) {
+  const p = state.player;
+  for (const ac of Object.values(state.aircraftById)) {
+    if (!ac.present) continue;
+    if (holdContains(ac, p.x, p.y, CONFIG.player.reachM)) return ac;
+  }
+  return null;
+}
+
 /** The vehicle the player could climb into. */
 export function findVehicle(state) {
   const p = state.player;
@@ -94,6 +111,9 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
   const cart = driving ? null : findCart(state);
   p.targetCartId = cart ? cart.id : null;
   p.targetVehicleId = driving ? null : (findVehicle(state) || {}).id || null;
+  const hold = driving ? null : findHold(state);
+  p.targetHoldId = hold ? hold.id : null;
+  p.targetHoldOpen = hold ? hold.holdOpen : false;
 
   // scan card lifetime
   if (state.scan && simTimeMs - state.scan.atMs > CONFIG.interaction.scanCardMs) {
@@ -126,14 +146,29 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
   /* ── E: grab, put down, load, unload ──────────────────────────────────── */
   if (input.wasPressed('grab')) {
     if (p.carryingBagId) {
-      // Standing at a cart with a bag in hand means "load it", which is the whole
-      // sorting verb. Falling through to a floor drop when the cart is full is
-      // deliberate: the game never refuses the action, it just cannot fit it.
+      // Standing at a cart or an open hold with a bag in hand means "load it", which is
+      // the whole sorting verb. Falling through to a floor drop when the cart is full or
+      // the hold is shut is deliberate: the game never refuses the action, it just
+      // cannot put the bag where you asked.
+      //
+      // The hold wins over a cart when both are in reach, because a cart parked at the
+      // aircraft is a staging post and the aircraft is the destination.
       const held = state.bagsById[p.carryingBagId];
-      if (cart && held && cartRoomFor(cart, state, held).ok) {
+      if (hold && hold.holdOpen && held) {
+        loadIntoHold(state, held, hold, bus, simTimeMs);
+      } else if (cart && held && cartRoomFor(cart, state, held).ok) {
         loadIntoCart(state, held, cart, bus, simTimeMs);
       } else {
         releaseHeld(state, bus, simTimeMs);
+      }
+    } else if (hold && hold.holdOpen && !p.targetBagId && manifestOf(state, hold).length) {
+      // GDD §28.2: a bag taken back out of a hold before closure must stop counting as
+      // loaded. Same top-of-the-pile rule as a cart.
+      const manifest = manifestOf(state, hold);
+      const bag = state.bagsById[manifest[manifest.length - 1]];
+      if (bag) {
+        bag.vx = 0; bag.vy = 0;
+        moveBag(state, bag, { type: 'carried', id: p.id }, bus, simTimeMs);
       }
     } else {
       // Unloading takes the TOP of the pile when nothing specific is in reach. A cart is
@@ -202,6 +237,30 @@ export function exitVehicle(state, bus = null, simTimeMs = 0) {
 }
 
 /* ── carts ───────────────────────────────────────────────────────────────── */
+
+/** The manifest of an aircraft, via its flight. */
+export function manifestOf(state, aircraft) {
+  const flight = state.flightsById[aircraft.flightId];
+  return flight ? flight.loadedBagIds : [];
+}
+
+/**
+ * Put a bag in the hold. GDD §9.1: a bag counts as loaded only when released inside the
+ * valid hold volume — so this is only ever reached from a real containment test, never
+ * from proximity to the aeroplane.
+ *
+ * It does NOT check whether the bag belongs on this flight. Loading the wrong bag is
+ * allowed and is the point (GDD §31.1.8); it becomes a misroute at departure.
+ */
+export function loadIntoHold(state, bag, aircraft, bus = null, simTimeMs = 0) {
+  const zone = aircraftHoldZone(aircraft);
+  bag.x = zone.x; bag.y = zone.y;
+  bag.vx = 0; bag.vy = 0;
+  moveBag(state, bag, { type: 'aircraftHold', id: aircraft.id }, bus, simTimeMs);
+  state.player.charging = false;
+  state.player.chargeMs = 0;
+  return bag;
+}
 
 export function loadIntoCart(state, bag, cart, bus = null, simTimeMs = 0) {
   bag.vx = 0; bag.vy = 0;
@@ -273,7 +332,14 @@ export function scanBag(state, bag, bus, simTimeMs) {
   let verdict = 'neutral';
   let where = bag.location.type;
 
-  if (bag.location.type === 'cart') {
+  if (bag.location.type === 'aircraftHold') {
+    // Aboard an aircraft the verdict is not advisory any more — it is the fact that will
+    // be recorded at departure.
+    const ac = state.aircraftById[bag.location.id];
+    const flight = ac ? state.flightsById[ac.flightId] : null;
+    where = flight ? flight.number : where;
+    if (flight) verdict = flight.id === bag.flightId ? 'correct' : 'wrong';
+  } else if (bag.location.type === 'cart') {
     const cart = state.cartsById[bag.location.id];
     where = cart ? cart.id : where;
     if (cart && cart.placardFlightId) {

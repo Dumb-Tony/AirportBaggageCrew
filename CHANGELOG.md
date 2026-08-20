@@ -1,5 +1,78 @@
 # Changelog
 
+## Milestone 3 — the sacred schedule — 2026-08-19
+
+**Exit criterion: a no-input shift completes deterministically. Met.**
+105 new assertions, 487 total (`tools\test.ps1`).
+
+Built:
+
+- **`stateAt(times, simTimeMs)` — the whole antagonist, as a pure function.** It takes
+  the authored times and the clock, and nothing else. There is no argument that could
+  carry player readiness and no closure it could read one from, so GDD §31.1.7 ("never
+  make a flight wait for task completion") is enforced by shape rather than by
+  discipline. The suite proves it: the same flight at the same instant returns the same
+  state for an idle crew, a swamped one, and one that has already loaded everything.
+- **The full GDD §5.1 lifecycle** — SCHEDULED, BAG_ACCEPTANCE, LOADING, FINAL_BAG_CALL,
+  HOLD_CLOSING, PUSHBACK, DEPARTED — each transition landing on its exact millisecond
+  and never running backwards.
+- **Aircraft on stand.** One regional type per GDD §9.1: taxis in to finish exactly at
+  bag acceptance, sits on its marks, pushes back exactly at departure. The hold is a
+  real oriented box, not a proximity radius, because §9.1 is explicit that a bag counts
+  as loaded only when released *inside the valid hold volume* — touching the fuselage
+  does not count, and the suite asserts that specifically.
+- **Loading and unloading.** Carry or throw a bag through an open door and it is aboard.
+  Take it back out before closure and it stops counting. Load somebody else's bag and
+  the game lets you — the scanner says "wrong", it does not refuse (GDD §31.1.8).
+- **Hold closing means closed.** After HOLD_CLOSING nothing more goes in, from any
+  route: not by hand, not thrown, not from a cart. A bag lying in the doorway of a
+  sealed aircraft stays on the ramp.
+- **Departure evaluates every expected bag** (GDD §5.2). Correct, misrouted, missed —
+  counted once, with the arithmetic closing: owed equals delivered plus missed. Wrongly
+  loaded bags travel anyway and record where they actually went. Missed bags stay
+  exactly where they are, physical and retrievable, because §5.2 requires it.
+- **Three readability channels** (GDD §5.3): the flight board with status, countdown and
+  a loaded-of-expected count; announcement toasts; and the aircraft itself, whose door
+  reads HOLD OPEN or HOLD CLOSED. Colour is reinforcement on all three — turn every hue
+  off and the board still spells out what is happening.
+- **Debug**: `,` skips to just before the next flight event, and `forceDeparture()` pushes
+  a flight to pushback now (GDD §21.8).
+
+Measured, printed by the suite on every run:
+
+| | |
+|---|---|
+| A no-input shift | all 3 flights depart, all 50 bags classified, 0 delivered |
+| The same shift, worked by a scripted bot | 50 of 50 delivered, 100% on-time baggage |
+| Cost of a step of the whole airport | 0.07 ms against a 16.67 ms budget |
+| Ten minutes of airport | simulates in ~2.5 s, about 240x real time |
+| Gate 1, used twice | AB221 clear at 195 s, SK307 taxis in at 201 s |
+
+Fixed during the milestone:
+
+- **SK307 was double-booking gate 1.** Its acceptance was 200 s, but AB221's aircraft is
+  not clear of the stand until 195 s once the taxi-in and pushback are counted — and
+  SK307's own taxi-in would have started at 196 s. `gateConflicts()` compared
+  acceptance-to-departure, which is narrower than the window a stand is actually
+  occupied; it now compares the real window, and SK307 moved to 205 s.
+- **The wings read as grey slabs** laid across the stand. Swept and tapered, and the
+  wingspan cut from 24 m to 21 m so it fits a 22 m stand instead of overhanging it.
+- **HOLD OPEN was printed underneath the crew**, where the player, the cart and the hold
+  zone all crowd the same few metres. Moved beside the door.
+
+Two tests changed because their premise expired rather than because anything broke:
+
+- m1 C10 asserted every bag is still `active` after a full shift. Since departures now
+  classify what they were owed, that stopped being true the moment flights began
+  leaving; the invariant was always about how a bag STARTS, so it samples early now.
+- m3 F13 first asserted a whole shift simulates in under 3 s and passed by five
+  milliseconds. A threshold that tight is a flake, not a check — it measures per-step
+  cost against the frame budget now, which is the number that actually means something.
+
+Not built, on purpose: scoring, the shift report, audio, save. A perfectly worked shift
+and a disastrous one still produce the same nothing at the end — that is Milestone 4.
+
+
 ## Milestone 2 — transport — 2026-08-19
 
 **Exit criterion: a full cart can travel to either gate without state corruption. Met.**

@@ -12,6 +12,8 @@
 import { MODES } from '../game.js';
 import { GameClock } from '../core/clock.js';
 import { ScannerCard } from './scannerCard.js';
+import { FlightBoard } from './flightBoard.js';
+import { visibleAnnouncements } from '../systems/announcements.js';
 
 const key = (k) => `<kbd>${k}</kbd>`;
 
@@ -33,10 +35,10 @@ export class Hud {
           <span class="hud-sep">/</span>
           <span id="hudTotal" class="hud-total">10:00</span>
         </div>
-        <div class="hud-slot" id="hudBoardSlot">
-          <span class="hud-pending">FLIGHT BOARD &mdash; MILESTONE 3</span>
-        </div>
+        <div class="hud-slot" id="hudBoardSlot"></div>
       </div>
+
+      <div class="toasts" id="hudToasts" role="status" aria-live="polite"></div>
 
       <div class="hud-bottom" id="hudBottom">
         <div class="held" id="hudHeld"></div>
@@ -47,14 +49,15 @@ export class Hud {
         <div class="card">
           <h1>Airport Baggage Crew</h1>
           <p class="tag">Simple physical work, hilarious logistical panic.</p>
-          <p class="milestone">Milestone 2 &mdash; transport</p>
+          <p class="milestone">Milestone 3 &mdash; the sacred schedule</p>
           <button class="primary" id="btnStart">Start shift</button>
           <p class="hint"><kbd>WASD</kbd> move &middot; <kbd>E</kbd> grab, load, hitch &middot;
              <kbd>F</kbd> drive, placard &middot; <kbd>Space</kbd> throw &middot;
              <kbd>Q</kbd> scan &middot; <kbd>Esc</kbd> pause</p>
-          <p class="scope">The belt runs whether you are ready or not. Sort bags onto the
-             marked carts, hitch up, and haul them to a gate. No flight schedule yet
-             &mdash; nothing departs until Milestone 3.</p>
+          <p class="scope">Three flights, fifty bags, ten minutes. Sort off the belt into
+             the marked carts, haul them to the gate, and get them in the hold before it
+             closes. <b>The aircraft leave on the clock whether you are ready or not.</b>
+             Nothing is scored yet &mdash; that is Milestone 4.</p>
         </div>
       </div>
 
@@ -73,9 +76,11 @@ export class Hud {
     this.el = {
       top: $('hudTop'), time: $('hudTime'), total: $('hudTotal'),
       bottom: $('hudBottom'), held: $('hudHeld'), prompt: $('hudPrompt'),
+      boardSlot: $('hudBoardSlot'), toasts: $('hudToasts'),
       title: $('screenTitle'), pause: $('screenPause'),
     };
     this.scannerCard = new ScannerCard(this.root);
+    this.board = new FlightBoard(this.el.boardSlot);
 
     // onStart is set by the bootstrap so a restart can also snap the camera. Falling
     // back to game.startShift() keeps the HUD usable when constructed on its own.
@@ -132,9 +137,13 @@ export class Hud {
       ? (state.vehiclesById[p.drivingId] || {}).nextCartId ? this._trainLength(state) : 0
       : 0;
 
+    const atHold = !!p.targetHoldId;
+    const holdOpen = p.targetHoldOpen;
+
     const promptKey = [
       p.drivingId ? 'd' + train : '', held ? 'h' : '', inCart ? 'c' : '',
       cart ? 'C' + cart.bagIds.length : '', p.targetBagId ? 't' : '', p.targetVehicleId ? 'v' : '',
+      atHold ? (holdOpen ? 'Ho' : 'Hx') : '',
     ].join('');
 
     if (promptKey !== this._lastPrompt) {
@@ -144,9 +153,17 @@ export class Hud {
         html = key('E') + (train ? ' Hitch / Unhitch' : ' Hitch cart') +
                '   ' + key('F') + ' Get out' +
                (train ? `   <span class="dim">towing ${train}</span>` : '');
+      } else if (held && atHold) {
+        // Standing in the hold volume is the one place the game says NO — and it says
+        // why, rather than going quiet (GDD §5.3).
+        html = holdOpen
+          ? key('E') + ' Load into hold   ' + key('Q') + ' Scan'
+          : key('E') + ' Put down   <span class="warn">hold is closed</span>';
       } else if (held) {
         html = key('E') + (inCart ? ' Load into cart' : ' Put down') +
                '   ' + key('Space') + ' Hold to throw   ' + key('Q') + ' Scan';
+      } else if (atHold && holdOpen) {
+        html = key('E') + ' Take back off the aircraft   ' + key('Q') + ' Scan';
       } else if (p.targetBagId || (cart && cart.bagIds.length)) {
         html = key('E') + (p.targetBagId ? ' Pick up' : ' Take from cart') +
                '   ' + key('Q') + ' Scan' +
@@ -160,7 +177,19 @@ export class Hud {
       this.el.prompt.classList.toggle('on', html !== '');
     }
 
+    this.board.update(state);
     this.scannerCard.update(state);
+
+    /* announcement toasts — GDD §5.3 channel two, and until Milestone 5 brings audio
+       they are the ONLY way an escalation reaches a player looking at the ramp. */
+    const live = visibleAnnouncements(state, state.simTimeMs);
+    const toastKey = live.map((a) => a.id).join(',');
+    if (toastKey !== this._lastToasts) {
+      this._lastToasts = toastKey;
+      this.el.toasts.innerHTML = live
+        .map((a) => `<div class="toast ${a.tone}">${a.text}</div>`).join('');
+      this.el.toasts.classList.toggle('on', live.length > 0);
+    }
   }
 
   /** How many carts the player is towing. Walks the chain rather than caching a count,
@@ -176,6 +205,7 @@ export class Hud {
   destroy() {
     if (this._unsub) this._unsub();
     this.scannerCard.destroy();
+    this.board.destroy();
     this.root.innerHTML = '';
   }
 }

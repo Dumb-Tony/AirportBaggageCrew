@@ -214,9 +214,21 @@ lines.push('--- C. bag identity (GDD 6.2, 22.1, 7.2) ---');
   const light = bags.find((b) => b.weightClass === 'light');
   ok('C9 a heavy bag is physically bigger than a light one',
      !heavy || !light || heavy.widthM > light.widthM);
-  ok('C10 every bag starts active and undamaged',
-     bags.every((b) => b.lifecycle === 'active' && b.condition === 'ok'));
-  ok('C11 no bag has been credited to a flight yet (that is Milestone 3)',
+  // Sampled EARLY on purpose. Since Milestone 3 a departure classifies every bag it was
+  // owed, so "still active at the end of a shift" stopped being true the moment flights
+  // began leaving — the invariant was always about how a bag STARTS.
+  // Wait for the first arrivals rather than assuming a time — "bags exist by 30 s" is a
+  // property of one seed, not of the game. (Same trap as m2 F2.)
+  const fresh = newGame(4242);
+  let waited = 0;
+  while (Object.keys(fresh.state.bagsById).length === 0 && waited < 200000) {
+    fresh.skipMs(2000); waited += 2000;
+  }
+  const early = Object.values(fresh.state.bagsById);
+  ok('C10 a bag starts active and undamaged',
+     early.length > 0 && early.every((b) => b.lifecycle === 'active' && b.condition === 'ok'),
+     `${early.length} bags`);
+  ok('C11 an unattended shift credits no bag to any flight, because none were loaded',
      bags.every((b) => b.actualFlightId === null));
 }
 }

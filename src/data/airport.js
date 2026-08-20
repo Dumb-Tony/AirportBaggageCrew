@@ -73,6 +73,22 @@ export const STAGING_PADS = [
   { id: 'pad_gate_2', gateId: 'gate_2', label: 'GATE 2', x: 25, y: 17.5, w: 7, h: 5.5 },
 ];
 
+/* Aircraft stands. One parking spot per gate, with the hold door on the south side of
+ * the fuselage so a cart train pulls up alongside it, and a taxi lane east for pushback.
+ * GDD §9.1 wants one baggage hold interaction zone and a visible door state. */
+export const STANDS = [
+  { id: 'stand_1', gateId: 'gate_1',
+    park: { x: 89, y: 19 }, rot: Math.PI,
+    hold: { x: 90, y: 21.6 },
+    taxiIn: { x: 118, y: 19 }, taxiOut: { x: 118, y: 19 } },
+  { id: 'stand_2', gateId: 'gate_2',
+    park: { x: 89, y: 51 }, rot: Math.PI,
+    hold: { x: 90, y: 53.6 },
+    taxiIn: { x: 118, y: 51 }, taxiOut: { x: 118, y: 51 } },
+];
+
+export const standForGate = (gateId) => STANDS.find((s) => s.gateId === gateId) || null;
+
 /** Painted markings — presentation only, never collision. */
 export const MARKINGS = [
   { kind: 'lane',  x: 56, y: 4,  w: 10, h: 62 },          // service road centreline runs here
@@ -90,8 +106,8 @@ export const ANCHORS = {
   cartBay2:     { x: 28.5, y: 20.25 },
   cartPark:     { x: 10.5, y: 20.25 },  // the spare third cart              (M2)
   tractorPark:  { x: 42, y: 23 },       // outside the door, lined up on it  (M2)
-  gate1Hold:    { x: 90, y: 19 },   // aircraft hold door, gate 1        (M3)
-  gate2Hold:    { x: 90, y: 51 },   // aircraft hold door, gate 2        (M3)
+  gate1Hold:    { x: 90, y: 21.6 },  // aircraft hold door, gate 1       (M3)
+  gate2Hold:    { x: 90, y: 53.6 },  // aircraft hold door, gate 2       (M3)
   playerSpawn:  { x: 22, y: 24 },
 };
 

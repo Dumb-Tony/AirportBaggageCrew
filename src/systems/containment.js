@@ -48,6 +48,12 @@ export function moveBag(state, bag, to, bus = null, simTimeMs = 0) {
         const i = cart.bagIds.indexOf(bag.id);
         if (i >= 0) cart.bagIds.splice(i, 1);
       }
+    } else if (from.type === 'aircraftHold') {
+      const flight = flightForHold(state, from.id);
+      if (flight) {
+        const i = flight.loadedBagIds.indexOf(bag.id);
+        if (i >= 0) flight.loadedBagIds.splice(i, 1);
+      }
     }
   }
 
@@ -59,6 +65,10 @@ export function moveBag(state, bag, to, bus = null, simTimeMs = 0) {
     const cart = state.cartsById[to.id];
     if (!cart) throw new Error(`moveBag: ${bag.id} into unknown cart "${to.id}"`);
     if (!cart.bagIds.includes(bag.id)) cart.bagIds.push(bag.id);
+  } else if (to.type === 'aircraftHold') {
+    const flight = flightForHold(state, to.id);
+    if (!flight) throw new Error(`moveBag: ${bag.id} into unknown aircraft "${to.id}"`);
+    if (!flight.loadedBagIds.includes(bag.id)) flight.loadedBagIds.push(bag.id);
   } else if (to.type === 'carried') {
     // One pair of hands. A second grab must release the first, never silently orphan it.
     const held = state.player.carryingBagId;
@@ -79,6 +89,12 @@ export function moveBag(state, bag, to, bus = null, simTimeMs = 0) {
     if (from && from.type === 'cart' && to.type !== 'cart') {
       bus.emit(EVENTS.BAG_TAKEN_FROM_CART, { bagId: bag.id, cartId: from.id }, simTimeMs);
     }
+    if (to.type === 'aircraftHold') {
+      bus.emit(EVENTS.BAG_ENTERED_HOLD, { bagId: bag.id, aircraftId: to.id }, simTimeMs);
+    }
+    if (from && from.type === 'aircraftHold' && to.type !== 'departed') {
+      bus.emit(EVENTS.BAG_LEFT_HOLD, { bagId: bag.id, aircraftId: from.id }, simTimeMs);
+    }
     if (from && from.type === 'carried' && to.type === 'floor') {
       bus.emit(EVENTS.BAG_RELEASED, { bagId: bag.id, x: bag.x, y: bag.y }, simTimeMs);
     }
@@ -88,6 +104,14 @@ export function moveBag(state, bag, to, bus = null, simTimeMs = 0) {
 
 /** Is this bag loose in the world (needs physics and can be targeted)? */
 export const isLoose = (bag) => bag.location.type === 'floor';
+
+/** A hold is addressed by its AIRCRAFT id, but the manifest lives on the FLIGHT — one
+ *  aircraft, one flight in Phase 1. Resolving it here keeps that indirection in the one
+ *  place that maintains the index. */
+function flightForHold(state, aircraftId) {
+  const ac = state.aircraftById[aircraftId];
+  return ac ? state.flightsById[ac.flightId] : null;
+}
 
 /** Development assertion. Returns a list of violations; empty means the invariant holds.
  *  Run by the m1 suite after every interesting operation, and by the debug overlay. */
@@ -116,6 +140,13 @@ export function assertContainment(state) {
       carriedCount++;
       if (state.player.carryingBagId !== id) bad.push(`${id}: carried but the player is not holding it`);
     }
+    if (loc.type === 'aircraftHold') {
+      const flight = flightForHold(state, loc.id);
+      if (!flight) { bad.push(`${id}: in the hold of unknown aircraft ${loc.id}`); continue; }
+      const hits = flight.loadedBagIds.filter((x) => x === id).length;
+      if (hits === 0) bad.push(`${id}: says it is aboard ${flight.id}, which is not carrying it`);
+      if (hits > 1) bad.push(`${id}: listed aboard ${flight.id} ${hits} times`);
+    }
     if (loc.type === 'cart') {
       const cart = state.cartsById[loc.id];
       if (!cart) { bad.push(`${id}: in unknown cart ${loc.id}`); continue; }
@@ -125,6 +156,19 @@ export function assertContainment(state) {
       const elsewhere = Object.values(state.cartsById)
         .filter((c) => c.id !== loc.id && c.bagIds.includes(id));
       if (elsewhere.length) bad.push(`${id}: also listed in ${elsewhere.map((c) => c.id).join()}`);
+    }
+  }
+
+  for (const flight of Object.values(state.flightsById)) {
+    if (new Set(flight.loadedBagIds).size !== flight.loadedBagIds.length) {
+      bad.push(`${flight.id}: loadedBagIds contains a duplicate`);
+    }
+    for (const id of flight.loadedBagIds) {
+      const bag = state.bagsById[id];
+      if (!bag) { bad.push(`${flight.id}: manifest lists unknown bag ${id}`); continue; }
+      if (bag.location.type !== 'aircraftHold') {
+        bad.push(`${flight.id}: manifest lists ${id}, but it is located "${bag.location.type}"`);
+      }
     }
   }
 

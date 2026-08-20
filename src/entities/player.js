@@ -21,6 +21,8 @@ export function createPlayer(spawn) {
     targetBagId: null,         // what a grab would pick up right now
     targetCartId: null,        // the cart within reach, if any
     targetVehicleId: null,     // the vehicle that could be climbed into
+    targetHoldId: null,        // the aircraft whose hold volume the player is inside
+    targetHoldOpen: false,     // ...and whether its door is open
     drivingId: null,           // the vehicle being driven, or null
     charging: false,           // throw charge held
     chargeMs: 0,

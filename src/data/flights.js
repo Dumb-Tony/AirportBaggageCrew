@@ -14,6 +14,8 @@
  * colour being the only differentiator.
  */
 
+import { CONFIG } from '../config.js';
+
 export const FLIGHT_DEFS = [
   {
     id: 'flight_AB221', number: 'AB221',
@@ -43,7 +45,11 @@ export const FLIGHT_DEFS = [
     gateId: 'gate_1', aircraftId: 'aircraft_3',
     tag: { color: '#3fbf9b', icon: 'circle' },
     bagCount: 18,
-    times: { bagAcceptanceMs: 200000, loadingMs: 220000, finalCallMs: 420000,
+    // Acceptance is 205 s, not 200: SK307 reuses gate 1 after AB221, whose aircraft is
+    // not clear of the stand until 195 s. GDD §20.4 forbids reusing a gate before the
+    // prior aircraft clears, and that has to include the taxi in and the pushback, not
+    // just the scheduled departure time. `gateConflicts()` checks the widened window.
+    times: { bagAcceptanceMs: 205000, loadingMs: 220000, finalCallMs: 420000,
              holdClosingMs: 450000, departureMs: 470000 },
     // §20.4 twist: priority bags arrive late.
     twist: { peak: 0.5, lateBags: 3, priorityCount: 4, heavyChance: 0.18, priorityLate: true },
@@ -55,15 +61,26 @@ export const flightById = (id) => FLIGHT_DEFS.find((f) => f.id === id) || null;
 /** Gate 1 is reused by SK307 after AB221 leaves. GDD §20.4: a gate may only be reused
  *  once the prior aircraft clears. Asserted in the m1 suite so a timing edit cannot
  *  quietly double-book a stand. */
+/**
+ * The window a flight actually occupies its stand: from the moment its aircraft starts
+ * taxiing in until the moment it is clear after pushback. Wider than
+ * bagAcceptance..departure, and the difference is exactly where a double-booking hides.
+ */
+export function standWindow(flight) {
+  return {
+    from: flight.times.bagAcceptanceMs - CONFIG.flight.taxiInMs,
+    to: flight.times.departureMs + CONFIG.flight.pushbackMs,
+  };
+}
+
 export function gateConflicts() {
   const out = [];
   for (let i = 0; i < FLIGHT_DEFS.length; i++) {
     for (let j = i + 1; j < FLIGHT_DEFS.length; j++) {
       const a = FLIGHT_DEFS[i], b = FLIGHT_DEFS[j];
       if (a.gateId !== b.gateId) continue;
-      const aIn = a.times.bagAcceptanceMs, aOut = a.times.departureMs;
-      const bIn = b.times.bagAcceptanceMs, bOut = b.times.departureMs;
-      if (aIn < bOut && bIn < aOut) out.push([a.number, b.number]);
+      const wa = standWindow(a), wb = standWindow(b);
+      if (wa.from < wb.to && wb.from < wa.to) out.push([a.number, b.number]);
     }
   }
   return out;

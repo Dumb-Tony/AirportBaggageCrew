@@ -13,6 +13,7 @@ import { CONFIG } from '../config.js';
 import { GameClock } from '../core/clock.js';
 import { assertContainment } from '../systems/containment.js';
 import { validateChain, trainOf } from '../systems/hitching.js';
+import { msToNext } from '../systems/flightSchedule.js';
 
 export class DebugOverlay {
   constructor(root, game, renderer) {
@@ -43,7 +44,8 @@ export class DebugOverlay {
       case 'KeyG': this.renderer.showGrid   = !this.renderer.showGrid;   break;
       case 'BracketLeft':  this._setScale(this._scaleIdx - 1); break;
       case 'BracketRight': this._setScale(this._scaleIdx + 1); break;
-      case 'Period': this.game.skipMs(10000); break;   // skip 10 s of simulation
+      case 'Period': this.game.skipMs(10000); break;      // skip 10 s of simulation
+      case 'Comma':  this.game.skipToNextFlightEvent(); break;   // GDD §21.8
       default: return;
     }
     e.preventDefault();
@@ -92,7 +94,7 @@ sim time    ${GameClock.formatMs(d.simTimeMs)}  (${Math.round(d.simTimeMs)} ms)
 shift left  ${GameClock.formatMs(g.shiftRemainingMs)}
 steps       ${d.stepCount}      frames ${d.frames}
 fps         ${this.fps}         step ${CONFIG.sim.stepMs.toFixed(3)} ms
-time scale  ${d.timeScale}x     [ ] change   . skip 10s
+time scale  ${d.timeScale}x     [ ] change   . skip 10s   , next flight event
 clamped     ${d.clampedFrames} frame(s) over ${CONFIG.sim.maxFrameMs} ms
 seed        ${d.seed}  "${d.seedLabel}"
 rng draws   world=${d.draws.world} bags=${d.draws.bags} sim=${d.draws.sim}
@@ -106,6 +108,7 @@ bags        ${d.bags} spawned of ${s.shift.bagSchedule.length} scheduled
 containment ${bad.length === 0 ? 'OK' : 'VIOLATED: ' + bad[0]}
 grid        ${g.grid.count} indexed, ${CONFIG.grid.cellM} m cells
 
+${flightLines(s)}
 ${cartLines(s)}
 chain       ${chainBad.length === 0 ? 'OK' : 'VIOLATED: ' + chainBad[0]}
 ${vehicleLines(s, g)}
@@ -117,14 +120,29 @@ bounds      ${this.renderer.showBounds ? 'ON' : 'off'} (B)    grid ${this.render
 recent events
 ${evts}
 
-pending: flight timers (M3) - carts (M2)
-         spawn bag / force departure (M3)`;
+pending: scoring + shift report (M4) - audio (M5)`;
   }
 
   destroy() { window.removeEventListener('keydown', this._onKey); this.el.remove(); }
 }
 
 /* ── formatting helpers, kept out of update() so the template stays readable ─── */
+
+function flightLines(s) {
+  const flights = Object.values(s.flightsById || {});
+  if (!flights.length) return 'flights     (none)';
+  return flights.map((f, i) => {
+    const head = i === 0 ? 'flights     ' : '            ';
+    const left = GameClock.formatMs(msToNext(f.times, s.simTimeMs));
+    const hold = f.state === 'BAG_ACCEPTANCE' || f.state === 'LOADING' ||
+                 f.state === 'FINAL_BAG_CALL' ? 'open' : 'shut';
+    const out = f.evaluated
+      ? ` -> ok ${f.outcome.correct} wrong ${f.outcome.misrouted} missed ${f.outcome.missed}`
+      : '';
+    return `${head}${f.number} ${f.state.padEnd(15)} ${left} ` +
+           `hold:${hold} ${String(f.loadedBagIds.length).padStart(2)}/${f.expectedCount}${out}`;
+  }).join('\n');
+}
 
 function cartLines(s) {
   const carts = Object.values(s.cartsById);

@@ -24,8 +24,10 @@ import { BOUNDS, WORLD, ANCHORS } from './data/airport.js';
 import { buildBagSchedule } from './data/flights.js';
 import { createPlayer, stepPlayer } from './entities/player.js';
 import { createConveyor, stepConveyor } from './entities/conveyor.js';
-import { spawnDueBags, stepBags, rebuildGrid, syncCartBagPositions, absorbIntoCarts }
+import { spawnDueBags, stepBags, rebuildGrid, syncCartBagPositions, absorbIntoContainers }
   from './systems/baggageFlow.js';
+import { createFlights, stepFlights } from './systems/flightSchedule.js';
+import { resetAnnouncements } from './systems/announcements.js';
 import { stepInteraction } from './systems/interaction.js';
 import { countByLocation } from './systems/containment.js';
 import { createCart } from './entities/cart.js';
@@ -84,6 +86,8 @@ export function createInitialState(seed, seedLabel) {
       tractor_1: createTractor('tractor_1', ANCHORS.tractorPark.x, ANCHORS.tractorPark.y, Math.PI),
     },
 
+    // Filled by _authorShift() from FLIGHT_DEFS — the runtime flight records and their
+    // aircraft. Empty here so createInitialState stays a pure shape.
     aircraftById: {},
     flightsById: {},
 
@@ -136,6 +140,12 @@ export class Game {
   _authorShift() {
     this.state.shift.tagBase = this.rng.world.int(100000, 899999);
     this.state.shift.bagSchedule = buildBagSchedule(this.rng.world);
+    // Flights need the timetable, because expectedCount counts bags that were scheduled
+    // whether or not the conveyor ever gets to them.
+    resetAnnouncements();
+    const { flightsById, aircraftById } = createFlights(this.state);
+    this.state.flightsById = flightsById;
+    this.state.aircraftById = aircraftById;
   }
 
   /* ── lifecycle ────────────────────────────────────────────────────────── */
@@ -225,6 +235,10 @@ export class Game {
     this.state.simTimeMs = simTimeMs;
     const dt = stepMs / 1000;
 
+    // The schedule runs FIRST and reads nothing but the clock. Everything below is the
+    // crew reacting to it — never the other way round (GDD §31.1.7).
+    stepFlights(this.state, dt, this.bus, simTimeMs);
+
     spawnDueBags(this.state, this.rng.bags, simTimeMs, this.bus);
     stepConveyor(this.state, dt, this.bus, simTimeMs, this.rng.sim);
 
@@ -242,12 +256,9 @@ export class Game {
     stepPlayer(this.state, dt, input);
     stepInteraction(this.state, dt, input, this.bus, simTimeMs, this.grid);
     stepBags(this.state, dt, this.grid);
-    absorbIntoCarts(this.state, simTimeMs, this.bus);
+    absorbIntoContainers(this.state, simTimeMs, this.bus);
 
-    // Milestone order, once these exist:
-    //   flightSchedule.step -> scoring.step -> announcements.step
-    // flightSchedule reads ONLY simTimeMs. It must never ask whether the player is
-    // ready. GDD §31.1.7: never make a flight wait for task completion.
+    // Milestone order, once these exist:  scoring.step (M4)
   }
 
   /** Debug: fast-forward simulation time without real frames. GDD §21.8. */
@@ -300,7 +311,35 @@ export class Game {
         speed: round4(v.speed), driver: v.driverId,
         train: trainOf(this.state, v), odo: round4(v.odometerM),
       })),
+      flights: Object.values(this.state.flightsById).map((f) => ({
+        id: f.id, state: f.state, aboard: f.loadedBagIds.length,
+        expected: f.expectedCount, evaluated: f.evaluated, outcome: { ...f.outcome },
+      })),
+      announcements: this.state.announcements.length,
     };
+  }
+
+  /** Debug: jump the clock to just before a flight transition. GDD §21.8 asks for a
+   *  skip-to-next-event control, and a ten-minute schedule is unusable without one. */
+  skipToNextFlightEvent(leadMs = 1500) {
+    let best = Infinity;
+    for (const f of Object.values(this.state.flightsById)) {
+      for (const t of [f.times.bagAcceptanceMs, f.times.loadingMs, f.times.finalCallMs,
+                       f.times.holdClosingMs, f.times.departureMs]) {
+        if (t > this.state.simTimeMs && t < best) best = t;
+      }
+    }
+    if (!isFinite(best)) return 0;
+    return this.skipMs(Math.max(0, best - leadMs - this.state.simTimeMs));
+  }
+
+  /** Debug: force a flight to pushback now, whatever the clock says. GDD §21.8. */
+  forceDeparture(flightId) {
+    const f = this.state.flightsById[flightId];
+    if (!f) return null;
+    const target = f.times.departureMs - this.state.simTimeMs;
+    if (target > 0) this.skipMs(target);
+    return f;
   }
 }
 

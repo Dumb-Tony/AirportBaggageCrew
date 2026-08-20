@@ -13,13 +13,13 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Milestone 2 — transport. 382 assertions green.**
-Bags arrive on a conveyor, carry identity, and can be picked up, carried, thrown,
-scanned, and sorted into marked carts. Carts hitch into trains behind a tractor and get
-hauled to the gates — shedding luggage if you take the corner too fast. Nothing departs
-yet: the flight schedule is Milestone 3.
+**Current state: Milestone 3 — the sacred schedule. 487 assertions green.**
+Three flights, fifty bags, ten minutes. Bags arrive on a conveyor, get sorted into
+marked carts, hauled to a gate behind a tractor, and loaded into an aircraft hold — and
+the aircraft leave on the clock whether you are ready or not. Nothing is scored yet;
+that is Milestone 4.
 
-![A loaded two-cart train being hauled to gate 1, with two bags shaken off on the corner](docs/m2-transport.png)
+![AB221 on final bag call at gate 1, hold open, a loaded cart alongside](docs/m3-final-call.png)
 
 ---
 
@@ -45,7 +45,7 @@ On foot:
 |---|---|
 | Move | `W` `A` `S` `D` or arrow keys |
 | Aim | Mouse, or your direction of travel if you never touch it |
-| Pick up · put down · load into a cart · take off a cart | `E` |
+| Pick up · put down · load into a cart or an open hold · take one back out | `E` |
 | Throw | Hold `Space`, release |
 | Scan | `Q` |
 | Climb into the tractor · set a cart placard | `F` |
@@ -61,7 +61,13 @@ Driving:
 | Get out | `F` |
 
 Any time: `Esc` start / pause / resume · `R` restart from the pause screen · `F3`
-developer overlay (`B` bounds · `G` grid · `[` `]` time scale · `.` skip 10 s).
+developer overlay (`B` bounds · `G` grid · `[` `]` time scale · `.` skip 10 s ·
+`,` skip to the next flight event).
+
+A bag counts as loaded only when it is released **inside the hold volume** — the green
+box at the aircraft door. Getting it near the aeroplane is not the same thing. You can
+throw one in from a few metres out, and you can load somebody else's bag by mistake: the
+scanner will tell you, and let you do it anyway.
 
 `E` handles the thing in front of you and `F` handles equipment. The GDD (§17.1) flags
 that grab and throw conflict if both sit on the mouse, so they are split across `E` and
@@ -78,7 +84,7 @@ suite into a scratch copy of the page, serves it, drives it in headless Chrome, 
 the dumped DOM. Exit 0 means green.
 
 ```bash
-tools\test.ps1 -Only m2
+tools\test.ps1 -Only m3
 ```
 
 Diagnostics, which measure rather than gate:
@@ -88,7 +94,7 @@ tools\smoketest.ps1 -Tests tools\_raf.js
 ```
 
 ```bash
-tools\shot.ps1 -Setup tools\_shot-m2.js -Out docs\m2-transport.png
+tools\shot.ps1 -Setup tools\_shot-m3.js -Out docs\m3-final-call.png
 ```
 
 ---
@@ -117,8 +123,8 @@ monetisation.
 | 0 | Skeleton and design locks | **done** — 117 assertions |
 | 1 | The bag feels good | **done** — 125 assertions |
 | 2 | Transport — carts, hitching, the tractor | **done** — 140 assertions |
-| 3 | Sacred schedule — flight states, board, departures | next |
-| 4 | Outcomes and pressure — scoring, report, replay | |
+| 3 | Sacred schedule — flight states, board, departures | **done** — 105 assertions |
+| 4 | Outcomes and pressure — scoring, report, replay | next |
 | 5 | Onboarding and juice — audio, hints, accessibility | |
 | 6 | Balance and hardening | |
 
@@ -152,6 +158,16 @@ Milestone 2 — transport:
 | Ten bags, full-lock circle at 7 m/s | 9 shaken off — the same circle at 1.2 m/s: none |
 | Three loaded carts + 100 loose bags | 0.33 ms per step |
 
+Milestone 3 — the schedule:
+
+| | |
+|---|---|
+| A no-input shift | all 3 flights depart, all 50 bags classified, 0 delivered |
+| The same shift, worked by a scripted bot | 50 of 50 delivered, 100% on-time baggage |
+| A step of the whole airport | 0.07 ms against a 16.67 ms budget |
+| Ten minutes of airport | simulates in ~2.5 s — about 240x real time |
+| Gate 1, used twice | AB221 clear at 195 s, SK307 taxis in at 201 s |
+
 ## Layout
 
 ```text
@@ -162,34 +178,37 @@ src/
   game.js         authoritative state, fixed-step driver, pause/restart
   core/           clock · input · eventBus · rng · grid
   data/           airport.js — the map · flights.js — the authored shift
-  entities/       bag · player · conveyor · cart · tractor
+  entities/       bag · player · conveyor · cart · tractor · aircraft
   systems/        containment · baggageFlow · hitching · interaction · physics
+                  flightSchedule · announcements
   render/         camera · renderer (Canvas 2D)
-  ui/             hud.js · scannerCard.js
+  ui/             hud.js · scannerCard.js · flightBoard.js
   dev/            debugOverlay.js — F3, never player-facing
-tools/            serve · smoketest · test · shot · m0/m1/m2 suites · diagnostics
+tools/            serve · smoketest · test · shot · m0-m3 suites · diagnostics
 docs/             screenshots
 ```
 
-The suggested tree in GDD §21.2 also lists `core/stateMachine.js`,
-`entities/aircraft.js`, `systems/flightSchedule.js`, `systems/scoring.js`,
-`systems/announcements.js`, `systems/save.js` and three more UI panels. Those are
+The suggested tree in GDD §21.2 also lists `core/stateMachine.js`, `systems/scoring.js`,
+`systems/save.js`, `ui/shiftReport.js` and `dev/debugOverlay.js`. Those are still
 deliberately absent: GDD §31.1.3 asks for clean boundaries rather than half-built
-features, so each file arrives with the milestone that fills it. The GDD
+features, so each file arrives with the milestone that fills it. (`stateMachine.js` never
+will — the flight lifecycle turned out to be a pure function of the clock, which needs no
+machinery.) The GDD
 `systems/baggageFlow.js` is split here into `containment.js` (the one writer of a bag
 location) and `baggageFlow.js` (spawning and loose-bag movement).
 
 ---
 
-## Known limitations at Milestone 2
+## Known limitations at Milestone 3
 
-- **No aircraft and no flight schedule.** You can haul a loaded cart to a gate and park
-  it there, and that is where the operation stops. Flight records exist as static data so
-  a tag and a placard have something to say; nothing advances, closes or departs.
-- **Nothing is scored.** Correct, wrong and missed are not evaluated until Milestone 4,
-  so a perfectly sorted train and a cart full of the wrong city are worth the same today.
-- **The shift clock runs past its end.** The end-of-shift transition and report land with
-  Milestone 4; today the clock keeps counting and `shiftRemainingMs` reads 0.
+- **Nothing is scored and there is no report.** Departures classify every bag as correct,
+  misrouted or missed, and the counts are right — but no points are awarded and the shift
+  ends without telling you how you did. That is Milestone 4, and it is the reason a
+  perfect shift and a disastrous one currently feel the same at the end.
+- **The shift clock runs past its end.** The end-of-shift transition lands with Milestone
+  4; today the clock keeps counting and `shiftRemainingMs` reads 0.
+- **Arrivals do not exist.** Every flight is a departure. GDD §4.3 arrivals and §4.4
+  connections are explicitly post-MVP.
 - **Spill tuning is provisional.** A full-lock circle at top speed empties a cart, which
   is probably too harsh even for a deliberate stunt. Milestone 6 owns the balance pass.
 - **Carts are placed, not driven.** A towed cart is positioned by the drawbar constraint

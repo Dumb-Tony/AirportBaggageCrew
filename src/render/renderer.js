@@ -13,6 +13,7 @@ import { beltPos } from '../entities/conveyor.js';
 import { chargeFrac } from '../entities/player.js';
 import { cartTowPoint } from '../entities/cart.js';
 import { tractorTowPoint } from '../entities/tractor.js';
+import { aircraftHoldZone } from '../entities/aircraft.js';
 import { CONFIG } from '../config.js';
 
 /** World palette. Operational colours, high contrast, colour never the only channel. */
@@ -72,6 +73,7 @@ export class Renderer {
     this._drawWalls();
     this._drawZoneLabels();
     this._drawConveyor(state);
+    this._drawAircraft(state);
     this._drawHitchLinks(state);
     this._drawCarts(state);
     this._drawBags(state);
@@ -246,6 +248,92 @@ export class Renderer {
     ctx.fillStyle = PALETTE.safety;
     ctx.fillRect(end.x - 0.2, end.y - hw, 0.35, c.widthM);
     ctx.restore();
+  }
+
+  /**
+   * Aircraft on stand — GDD §9.1, §19.1 ("aircraft as large, unmistakable silhouettes").
+   *
+   * The hold door is channel three of GDD §5.3: open is a lit green mouth you can walk
+   * into, closed is a red bar. A player looking at the aeroplane can tell whether they
+   * can still load it without reading the board or hearing the announcement.
+   */
+  _drawAircraft(state) {
+    const { ctx } = this;
+    for (const ac of Object.values(state.aircraftById || {})) {
+      if (!ac.present) continue;
+      const L = ac.lengthM, W = ac.wingspanM, F = CONFIG.aircraft.fuselageWidthM;
+
+      ctx.save();
+      ctx.translate(ac.x, ac.y);
+      ctx.rotate(ac.rot);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath(); ctx.ellipse(0.5, 0.9, L / 2, F, 0, 0, Math.PI * 2); ctx.fill();
+
+      // Wings and tailplane, swept and tapered. Drawn as rectangles first, they read as
+      // grey slabs laid across the stand rather than as an aeroplane.
+      ctx.fillStyle = '#b9bfcb';
+      ctx.beginPath();
+      ctx.moveTo(-2.0, 0);
+      ctx.lineTo(0.5, -W / 2); ctx.lineTo(2.6, -W / 2);
+      ctx.lineTo(3.5, 0);
+      ctx.lineTo(2.6, W / 2); ctx.lineTo(0.5, W / 2);
+      ctx.closePath(); ctx.fill();
+
+      const tw = W / 2.3, tx = L / 2 - 4.0;
+      ctx.beginPath();
+      ctx.moveTo(tx, 0);
+      ctx.lineTo(tx + 1.3, -tw / 2); ctx.lineTo(tx + 2.6, -tw / 2);
+      ctx.lineTo(tx + 3.2, 0);
+      ctx.lineTo(tx + 2.6, tw / 2); ctx.lineTo(tx + 1.3, tw / 2);
+      ctx.closePath(); ctx.fill();
+
+      ctx.fillStyle = '#e6eaf0';
+      ctx.beginPath();
+      ctx.moveTo(-L / 2, 0);                                   // nose
+      ctx.quadraticCurveTo(-L / 2 + 2.5, -F / 2, -L / 2 + 6, -F / 2);
+      ctx.lineTo(L / 2 - 2, -F / 2);
+      ctx.quadraticCurveTo(L / 2, -F / 2, L / 2, -0.5);        // tail
+      ctx.lineTo(L / 2, 0.5);
+      ctx.quadraticCurveTo(L / 2, F / 2, L / 2 - 2, F / 2);
+      ctx.lineTo(-L / 2 + 6, F / 2);
+      ctx.quadraticCurveTo(-L / 2 + 2.5, F / 2, -L / 2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#8d94a2'; ctx.lineWidth = 0.14; ctx.stroke();
+
+      // cabin windows, so the silhouette reads as an aeroplane at a glance
+      ctx.fillStyle = 'rgba(60,70,86,0.55)';
+      for (let x = -L / 2 + 5; x < L / 2 - 4; x += 1.5) ctx.fillRect(x, -0.35, 0.7, 0.7);
+
+      // the flight number, painted along the fuselage — GDD §16.4 world signage
+      ctx.fillStyle = 'rgba(60,70,86,0.85)';
+      ctx.font = '800 1.5px Quicksand, "Segoe UI", system-ui, sans-serif';
+      ctx.save();
+      ctx.rotate(Math.PI);              // stands face west; keep the text upright
+      ctx.fillText(ac.number, 1.5, 0.05);
+      ctx.restore();
+      ctx.restore();
+
+      /* the hold door, in world space so it lines up with the containment test */
+      const z = aircraftHoldZone(ac);
+      ctx.save();
+      ctx.fillStyle = ac.holdOpen ? 'rgba(94,201,106,0.20)' : 'rgba(255,90,90,0.14)';
+      ctx.fillRect(z.x - z.lengthM / 2, z.y - z.widthM / 2, z.lengthM, z.widthM);
+      ctx.strokeStyle = ac.holdOpen ? '#5ec96a' : '#ff5a5a';
+      ctx.lineWidth = 0.16;
+      ctx.setLineDash(ac.holdOpen ? [] : [0.6, 0.45]);
+      ctx.strokeRect(z.x - z.lengthM / 2, z.y - z.widthM / 2, z.lengthM, z.widthM);
+      ctx.setLineDash([]);
+
+      // Beside the door, not under it: the crew, the cart and the hold zone all crowd
+      // the same few metres, and a label printed below the zone lands on top of them.
+      ctx.fillStyle = ac.holdOpen ? 'rgba(94,201,106,0.95)' : 'rgba(255,90,90,0.95)';
+      ctx.font = '800 0.9px Quicksand, "Segoe UI", system-ui, sans-serif';
+      ctx.fillText(ac.holdOpen ? 'HOLD OPEN' : 'HOLD CLOSED',
+                   z.x - z.lengthM / 2 - 3.0, z.y);
+      ctx.restore();
+    }
   }
 
   /** Drawbars, under everything, so a train reads as one connected thing. */

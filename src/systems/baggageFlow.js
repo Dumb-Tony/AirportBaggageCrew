@@ -12,6 +12,7 @@ import { moveBag } from './containment.js';
 import { createBag } from '../entities/bag.js';
 import { EVENTS } from '../core/eventBus.js';
 import { cartContains, cartRoomFor, cartSlotWorld } from '../entities/cart.js';
+import { holdContains } from '../entities/aircraft.js';
 
 /**
  * Put every bag whose scheduled moment has passed onto the belt.
@@ -40,6 +41,12 @@ export function spawnDueBags(state, rng, simTimeMs, bus) {
     // Re-assert the location through moveBag so conveyor.bagIds is maintained by the
     // one writer that is allowed to maintain it.
     moveBag(state, bag, { type: 'conveyor', id: state.world.conveyor.id, t: 0 }, bus, simTimeMs);
+
+    // The flight is now owed this specific bag — GDD §22.2 `expectedBagIds`. The COUNT
+    // was known up front from the timetable; this is the list of the ones that actually
+    // reached the belt, which is what the missed-bag pass walks.
+    const flight = state.flightsById[bag.flightId];
+    if (flight && !flight.expectedBagIds.includes(bag.id)) flight.expectedBagIds.push(bag.id);
 
     shift.nextSpawnIdx++;
     shift.spawned++;
@@ -85,9 +92,10 @@ export function syncCartBagPositions(state) {
  * The cooldown matters: without it a bag that spills on a corner is instantly swallowed
  * again by the cart that just threw it, and the spill never reads as a mistake.
  */
-export function absorbIntoCarts(state, simTimeMs, bus) {
+export function absorbIntoContainers(state, simTimeMs, bus) {
   const carts = Object.values(state.cartsById);
-  if (!carts.length) return 0;
+  const aircraft = Object.values(state.aircraftById || {});
+  if (!carts.length && !aircraft.length) return 0;
   let n = 0;
 
   for (const id of Object.keys(state.bagsById)) {
@@ -95,6 +103,20 @@ export function absorbIntoCarts(state, simTimeMs, bus) {
     if (bag.location.type !== 'floor') continue;
     if (Math.hypot(bag.vx, bag.vy) > CONFIG.cart.absorbSpeedMps) continue;
     if (bag.cartCooldownMs && simTimeMs < bag.cartCooldownMs) continue;
+
+    // An OPEN hold takes precedence: a bag lobbed through the door is loaded, which is
+    // GDD §9.1 read literally — it was released inside the valid hold volume. A CLOSED
+    // hold catches nothing, so a bag thrown at a sealed aircraft just lands on the ramp.
+    let placed = false;
+    for (const ac of aircraft) {
+      if (!ac.present || !ac.holdOpen) continue;
+      if (!holdContains(ac, bag.x, bag.y)) continue;
+      bag.vx = 0; bag.vy = 0;
+      moveBag(state, bag, { type: 'aircraftHold', id: ac.id }, bus, simTimeMs);
+      placed = true; n++;
+      break;
+    }
+    if (placed) continue;
 
     for (const cart of carts) {
       if (!cartContains(cart, bag.x, bag.y)) continue;

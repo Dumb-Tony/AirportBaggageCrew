@@ -141,10 +141,44 @@ export const CONFIG = {
     bagShoveStrength: 1.4,  // vehicles scatter luggage — GDD §6.5
   },
 
-  /* ── flights, scoring, audio ────────────────────────────────────────────── */
+  /* ── the schedule ───────────────────────────────────────────────────────── */
+  // GDD §5: the schedule is the game's antagonist. Every number here is read by a PURE
+  // FUNCTION OF SIMULATION TIME and by nothing else — no system may consult player
+  // readiness to decide when a flight moves (GDD §31.1.7).
+  flight: {
+    taxiInMs: 4000,        // aircraft slides onto the stand, ending at bagAcceptanceMs
+    pushbackMs: 5000,      // departureMs starts pushback; DEPARTED is this much later
+
+    // GDD §5.2 allows "a very small, explicitly communicated operational grace window".
+    // That window is not a separate mechanism here: it is the FINAL_BAG_CALL state
+    // itself, which is announced, shown amber on the board, and runs from finalCallMs
+    // to holdClosingMs — 25 s on AB221. After hold closing nothing more can be loaded.
+
+    boardSlots: 4,         // GDD §16.2: a compact board showing 3-4 flights
+    urgentMs: 45000,       // board counts down in red inside this
+    holdZone: { lengthM: 5.0, widthM: 3.4 },
+  },
+
+  /* ── aircraft ───────────────────────────────────────────────────────────── */
+  aircraft: {
+    lengthM: 26,           // a regional jet, and the stand is 40 m x 22 m
+    wingspanM: 21,
+    fuselageWidthM: 3.2,
+    taxiDistanceM: 30,     // how far it slides in and out along the taxi lane
+  },
+
+  /* ── announcements ──────────────────────────────────────────────────────── */
+  // GDD §18.3: text plus simple generated sound is sufficient for Phase 1, and the
+  // sound is Milestone 5. Every cue below therefore needs a visual form (GDD §5.3).
+  announce: {
+    toastMs: 5200,
+    maxVisible: 3,
+    logSize: 40,
+  },
+
+  /* ── scoring, audio ─────────────────────────────────────────────────────── */
   // Deliberately absent. GDD §31.1.3: future systems are represented by clean
-  // boundaries, not half-built features. Each block lands with its milestone:
-  //   flights -> M3      scoring -> M4      audio -> M5
+  // boundaries, not half-built features.  scoring -> M4      audio -> M5
 };
 
 /** Deep-frozen so a system cannot quietly retune the game at runtime. Difficulty

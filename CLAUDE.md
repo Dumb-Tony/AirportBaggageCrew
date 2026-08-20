@@ -31,6 +31,15 @@ Dev-wide catalog of what already exists and where to copy it from.
   gate 1 in 19.6 s with 10 of 10 aboard; drawbar stretch under 0.02 m; three loaded
   carts plus 100 loose bags cost 0.33 ms per step. **140 assertions, 382 total** +
   `docs/m2-transport.png`.
+- 2026-08-19 — **M3 DONE.** The sacred schedule. `stateAt(times, simTimeMs)` is a PURE
+  FUNCTION and is the whole antagonist; the full GDD §5.1 lifecycle; aircraft that taxi
+  in, open a real hold volume, and push back on the clock; departure evaluation
+  (correct / misrouted / missed, arithmetic closing); the flight board, announcement
+  toasts and hold-door state as the three GDD §5.3 urgency channels. SK307 moved to
+  205 s — it had been double-booking gate 1 once taxi and pushback were counted.
+  Measured: a no-input shift departs all 3 flights and classifies all 50 bags; a
+  scripted bot delivers 50 of 50; a step of the whole airport costs 0.07 ms.
+  **105 assertions, 487 total** + `docs/m3-final-call.png`.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -123,6 +132,27 @@ Dev-wide catalog of what already exists and where to copy it from.
 - **Spill is a stability score, not physics** (GDD §6.4 permits this). Lateral load is
   speed × yaw rate scaled by fill. The numbers are PROVISIONAL — M6 owns them — and a
   full-lock circle at top speed still empties a cart.
+- **`stateAt(times, simTimeMs)` is a pure function and must stay one.** It is how GDD
+  §31.1.7 is enforced: there is no parameter that could carry player readiness, so a
+  flight cannot be made to wait. Do not add a `state` argument, do not close over
+  anything, do not "just check whether the hold is empty first". m3 A11/A12 and E1-E3
+  exist specifically to catch that.
+- **The hold is a VOLUME, not a radius** (GDD §9.1: "Do not count a bag merely because it
+  touched the aircraft"). `holdContains` is an oriented box test, and every loading path
+  — by hand, thrown, absorbed — goes through it. m3 B6 asserts the fuselage centre does
+  not count.
+- **Evaluation happens once, at PUSHBACK**, and `expectedCount` comes from the TIMETABLE
+  rather than from what spawned — so a bag the conveyor never reached still counts as
+  missed instead of vanishing from the arithmetic. m3 F7 checks owed = delivered + missed.
+- **Missed bags are not touched.** GDD §5.2 requires them to stay physical and actionable
+  after the aircraft leaves, so evaluation sets `lifecycle` and nothing else. Never move
+  a missed bag to a bin, a warehouse or a null location.
+- **A gate is occupied for longer than acceptance-to-departure.** `standWindow()` widens
+  it by the taxi-in and the pushback, and `gateConflicts()` compares THAT. The narrower
+  comparison passed while SK307 was arriving before AB221 had left.
+- **Announcement copy must say what happened in words.** Until M5 brings audio, the
+  toasts are the only channel besides the board, and GDD §5.3/§16.3 forbid colour being
+  the only differentiator. Never write a toast whose meaning is in its tone.
 
 ## Gotchas already paid for
 
@@ -151,6 +181,17 @@ Dev-wide catalog of what already exists and where to copy it from.
   replaces the state object, so a reference taken earlier points at a discarded one and
   every edit vanishes without an error. The first M1 screenshot was posed entirely on a
   dead object and looked merely "empty".
+- **Never assume WHEN a seeded event happens.** "A bag exists by 30 s" is a property of
+  one seed, not of the game. Loop until the condition holds, bounded. This has now bitten
+  twice — m2 F2 and m1 C10 — both times as a confident-looking assertion about a spawn
+  time.
+- **When a test breaks after a milestone, ask whether its PREMISE expired.** m1 C10
+  asserted every bag is still `active` after a full shift; M3 made departures classify
+  them, so the assertion was describing a world that no longer exists. That is a test to
+  rewrite, not code to revert — but check which it is before touching either.
+- **A performance threshold that passes by five milliseconds is a flake.** m3 F13 first
+  asserted a whole shift runs in under 3 s and measured 2995 ms. Assert the per-step cost
+  against the frame budget, which is the number that means something, and print the total.
 - **Never write a rejection-sampling loop that fills a `Set` to a target count** unless
   the pool is provably much larger than the count. `buildBagSchedule` picked 4 priority
   bags from a 6-wide window that way; one edit to the twist numbers would have made it
@@ -222,11 +263,12 @@ second repo, no `dist/`. Pages takes ~30-60 s to rebuild.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (382 assertions), exit 0 = green
-tools\test.ps1 -Only m2     # one suite
+tools\test.ps1              # all suites (487 assertions), exit 0 = green
+tools\test.ps1 -Only m3     # one suite
 
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js     # is rAF usable under the harness
+tools\shot.ps1 -Setup tools\_shot-m3.js -Out docs\m3-final-call.png
 tools\shot.ps1 -Setup tools\_shot-m2.js -Out docs\m2-transport.png
 tools\shot.ps1 -Setup tools\_shot-m1.js -Out docs\m1-sorting.png
 tools\shot.ps1 -Setup tools\_shot-playing.js -Out docs\m0-airport.png
