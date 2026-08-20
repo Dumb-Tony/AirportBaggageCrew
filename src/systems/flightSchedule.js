@@ -169,9 +169,19 @@ export function evaluateFlight(state, flight, bus, simTimeMs) {
   // still counts as missed rather than quietly vanishing from the arithmetic.
   const missed = Math.max(0, flight.expectedCount - correct);
   let priorityMissed = 0;
-  for (const bagId of flight.expectedBagIds) {
+
+  // Walks EVERY bag belonging to this flight, not just `expectedBagIds`. The two are
+  // the same list in normal play, but a bag that arrived by any other route would
+  // otherwise finish the shift still marked 'active' — classified by nothing. GDD §5.2
+  // says departure evaluates every expected bag; the flight is the owner of record, so
+  // ownership is what gets walked.
+  for (const bagId of Object.keys(state.bagsById)) {
     const bag = state.bagsById[bagId];
-    if (!bag || bag.lifecycle === 'loaded') continue;
+    if (bag.flightId !== flight.id) continue;
+    if (bag.lifecycle === 'loaded') continue;
+    // Already flown, on somebody else's aircraft. It missed this flight too, and the
+    // count above says so, but 'misrouted' is the more specific truth about the bag.
+    if (bag.lifecycle === 'misrouted') continue;
     bag.lifecycle = 'missed';
     if (bag.priority) priorityMissed++;
     if (bus) bus.emit(EVENTS.BAG_MISSED, { bagId, flightId: flight.id }, simTimeMs);

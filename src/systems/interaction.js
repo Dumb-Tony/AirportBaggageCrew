@@ -354,6 +354,7 @@ export function scanBag(state, bag, bus, simTimeMs) {
   }
 
   recordScan(bag, simTimeMs, where, state.player.id);
+  if (state.stats) state.stats.scans++;
   state.scan = { bagId: bag.id, atMs: simTimeMs, verdict, where };
   if (bus) bus.emit(EVENTS.BAG_SCANNED, { bagId: bag.id, verdict }, simTimeMs);
   return state.scan;

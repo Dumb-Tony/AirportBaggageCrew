@@ -147,8 +147,15 @@ export function updateTrain(state, vehicle, dtSec, bus = null, simTimeMs = 0) {
 
       if (lat > C.spillLatMps2) {
         cart.stability -= (lat - C.spillLatMps2) * C.spillDrainRate * dtSec;
+        // GDD §11.3 "cart corners taken above safe speed" — counted on the way IN to
+        // the overload, so one long corner is one corner and not two hundred steps.
+        if (!cart.overLimit) {
+          cart.overLimit = true;
+          if (state.stats) state.stats.hardCorners++;
+        }
       } else {
         cart.stability = Math.min(1, cart.stability + C.stabilityRecover * dtSec);
+        cart.overLimit = false;
       }
 
       if (cart.stability <= 0 && cart.bagIds.length > 0) {

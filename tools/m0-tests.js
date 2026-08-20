@@ -228,9 +228,11 @@ lines.push('--- C. Game state, pause, restart, determinism (GDD 21.4, 29) ---');
 
   const g2 = new Game({ seed: 1 });
   g2.startShift();
+  // Since Milestone 4 the shift length is DERIVED from the last departure rather than a
+  // hardcoded ten minutes, so the length to compare against lives on the state.
   near('C21 shift time remaining starts at the full shift',
-       g2.shiftRemainingMs, CONFIG.shift.durationMs, 1);
-  g2.skipMs(CONFIG.shift.durationMs + 60000);
+       g2.shiftRemainingMs, g2.state.shift.endTimeMs, 1);
+  g2.skipMs(g2.state.shift.endTimeMs + 60000);
   eq('C22 shift time remaining clamps at zero', g2.shiftRemainingMs, 0);
 }
 
@@ -478,10 +480,14 @@ async function sectionH() {
     near('H15 resuming advances again', game.state.simTimeMs, t1 * 2, STEP * 2);
     eq('H16 the frame counter tracked every driven frame', game.frames, 180);
 
-    // A full ten-minute shift at the fixed step: the Milestone 0 stability check.
+    // A whole shift at the fixed step: the Milestone 0 stability check. Driven well past
+    // the end — since Milestone 4 the shift STOPS itself there and the clock pauses, so
+    // the simulation should come to rest on the end time rather than run on.
     game.startShift();
+    const shiftEnd = game.state.shift.endTimeMs;
     drive(36000);
-    near('H17 a full ten-minute shift runs to the end', game.state.simTimeMs, 600000, STEP * 2);
+    near('H17 a whole shift runs to its end and stops there',
+         game.state.simTimeMs, shiftEnd, STEP * 2);
     eq('H18 and the shift clock has run out', Math.round(game.shiftRemainingMs), 0);
     ok('H19 the event log stayed bounded across the shift',
        game.bus.log.length <= CONFIG.debug.eventLogSize, `${game.bus.log.length}`);

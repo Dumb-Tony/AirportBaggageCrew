@@ -13,7 +13,9 @@ import { MODES } from '../game.js';
 import { GameClock } from '../core/clock.js';
 import { ScannerCard } from './scannerCard.js';
 import { FlightBoard } from './flightBoard.js';
+import { ShiftReport } from './shiftReport.js';
 import { visibleAnnouncements } from '../systems/announcements.js';
+import { verdictFor } from '../systems/scoring.js';
 
 const key = (k) => `<kbd>${k}</kbd>`;
 
@@ -35,6 +37,7 @@ export class Hud {
           <span class="hud-sep">/</span>
           <span id="hudTotal" class="hud-total">10:00</span>
         </div>
+        <div class="hud-score" id="hudScore"></div>
         <div class="hud-slot" id="hudBoardSlot"></div>
       </div>
 
@@ -49,15 +52,15 @@ export class Hud {
         <div class="card">
           <h1>Airport Baggage Crew</h1>
           <p class="tag">Simple physical work, hilarious logistical panic.</p>
-          <p class="milestone">Milestone 3 &mdash; the sacred schedule</p>
+          <p class="milestone">Milestone 4 &mdash; outcomes and pressure</p>
           <button class="primary" id="btnStart">Start shift</button>
           <p class="hint"><kbd>WASD</kbd> move &middot; <kbd>E</kbd> grab, load, hitch &middot;
              <kbd>F</kbd> drive, placard &middot; <kbd>Space</kbd> throw &middot;
              <kbd>Q</kbd> scan &middot; <kbd>Esc</kbd> pause</p>
-          <p class="scope">Three flights, fifty bags, ten minutes. Sort off the belt into
-             the marked carts, haul them to the gate, and get them in the hold before it
-             closes. <b>The aircraft leave on the clock whether you are ready or not.</b>
-             Nothing is scored yet &mdash; that is Milestone 4.</p>
+          <p class="scope">Three flights, fifty bags, eight minutes. Sort off the belt
+             into the marked carts, haul them to the gate, and get them in the hold before
+             it closes. <b>The aircraft leave on the clock whether you are ready or not</b>
+             &mdash; and now they tell you what you managed.</p>
         </div>
       </div>
 
@@ -76,11 +79,12 @@ export class Hud {
     this.el = {
       top: $('hudTop'), time: $('hudTime'), total: $('hudTotal'),
       bottom: $('hudBottom'), held: $('hudHeld'), prompt: $('hudPrompt'),
-      boardSlot: $('hudBoardSlot'), toasts: $('hudToasts'),
+      boardSlot: $('hudBoardSlot'), toasts: $('hudToasts'), score: $('hudScore'),
       title: $('screenTitle'), pause: $('screenPause'),
     };
     this.scannerCard = new ScannerCard(this.root);
     this.board = new FlightBoard(this.el.boardSlot);
+    this.report = new ShiftReport(this.root, this.game);
 
     // onStart is set by the bootstrap so a restart can also snap the camera. Falling
     // back to game.startShift() keeps the HUD usable when constructed on its own.
@@ -98,7 +102,8 @@ export class Hud {
     const m = this.game.state.mode;
     this.el.title.classList.toggle('on', m === MODES.TITLE);
     this.el.pause.classList.toggle('on', m === MODES.PAUSED);
-    this.el.top.classList.toggle('on', m === MODES.PLAYING || m === MODES.PAUSED);
+    this.el.top.classList.toggle('on',
+      m === MODES.PLAYING || m === MODES.PAUSED || m === MODES.REPORT);
     this.el.bottom.classList.toggle('on', m === MODES.PLAYING);
   }
 
@@ -110,6 +115,21 @@ export class Hud {
 
     const t = GameClock.formatMs(state.simTimeMs);
     if (t !== this._lastTime) { this.el.time.textContent = t; this._lastTime = t; }
+
+    const total = GameClock.formatMs(state.shift.endTimeMs);
+    if (total !== this._lastTotal) { this.el.total.textContent = total; this._lastTotal = total; }
+
+    /* Running score. GDD §11.1: keep the HUD operational and do NOT turn the screen
+       into an arcade combo counter, so this is one small figure that moves only when a
+       flight departs — not a number that ticks on every bag. */
+    const pts = state.score.points;
+    if (pts !== this._lastPoints) {
+      this._lastPoints = pts;
+      this.el.score.className = 'hud-score' + (pts < 0 ? ' bad' : '') + (pts !== 0 ? ' on' : '');
+      this.el.score.textContent = pts === 0 ? '' : `${pts > 0 ? '+' : ''}${pts}`;
+    }
+
+    this.report.update(state, state.report ? verdictFor(state.report) : '');
 
     /* held-object indicator — GDD §16.1 "what am I holding?" */
     const held = state.player.carryingBagId ? state.bagsById[state.player.carryingBagId] : null;
@@ -206,6 +226,7 @@ export class Hud {
     if (this._unsub) this._unsub();
     this.scannerCard.destroy();
     this.board.destroy();
+    this.report.destroy();
     this.root.innerHTML = '';
   }
 }

@@ -147,10 +147,19 @@ export function stepBags(state, dtSec, grid) {
     const bag = state.bagsById[id];
     if (bag.location.type !== 'floor') continue;
     if (bag.vx !== 0 || bag.vy !== 0) {
+      const x0 = bag.x, y0 = bag.y;
       moveWithWalls(bag, dtSec, bag.radiusM, B.restitution);
       applyFriction(bag, dtSec, B.friction);
       // spin while sliding, purely cosmetic
       bag.rot += (bag.vx * 0.06 + bag.vy * 0.04) * dtSec * 6;
+
+      // GDD §11.3 "longest loose suitcase journey" — accumulated only while a bag is
+      // genuinely loose, so being carried or carted does not count toward it.
+      bag.travelledM = (bag.travelledM || 0) + Math.hypot(bag.x - x0, bag.y - y0);
+      if (state.stats && bag.travelledM > state.stats.longestBagJourneyM) {
+        state.stats.longestBagJourneyM = bag.travelledM;
+        state.stats.longestBagTag = bag.tag;
+      }
     }
   }
 

@@ -19,7 +19,13 @@ export const CONFIG = {
   /* ── shift ──────────────────────────────────────────────────────────────── */
   shift: {
     id: 'regional_day_1',
-    durationMs: 600000,    // 10 min — GDD §3.3 prototype shift is 8-12 min
+    // The shift ENDS a short wrap-up after the last aircraft is clear, not at a fixed
+    // ten minutes. Derived rather than authored, so retuning the schedule can never
+    // leave dead minutes at the end with nothing on the ramp to do — which is exactly
+    // what a hardcoded 600000 was doing (the last flight was away at 7:55).
+    // GDD §3.3 wants an 8-12 minute shift; the derived value lands at about 8:07.
+    wrapUpMs: 12000,
+    durationMs: 600000,    // ceiling and fallback only; see Game._authorShift
   },
 
   /* ── world ──────────────────────────────────────────────────────────────── */
@@ -176,9 +182,28 @@ export const CONFIG = {
     logSize: 40,
   },
 
-  /* ── scoring, audio ─────────────────────────────────────────────────────── */
+  /* ── scoring ────────────────────────────────────────────────────────────── */
+  // GDD §11.1's suggested values, verbatim. The document says to tune them through
+  // playtesting and that the relative cost of a wrong destination should exceed a
+  // simple miss — 250 against 150 — so that ordering is the thing to preserve if these
+  // move at Milestone 6.
+  score: {
+    correctBag: 100,
+    priorityBonus: 50,        // additional, on top of correctBag
+    misroutedBag: -250,       // wrong aircraft, discovered at departure
+    missedBag: -150,
+    perfectFlightBonus: 250,  // §11.1 asks for a completion bonus without naming a value
+
+    // Two entries from §11.1 are deliberately NOT implemented yet, rather than guessed:
+    //   "correct bag left loose on dangerous ramp area" is explicitly optional, and
+    //   "collision/equipment damage -50 to -300" needs a damage model, which does not
+    //   exist. A cart spill is mishandling, not equipment damage, and scoring it would
+    //   double-charge: a spilled bag usually goes on to miss its flight anyway.
+  },
+
+  /* ── audio ──────────────────────────────────────────────────────────────── */
   // Deliberately absent. GDD §31.1.3: future systems are represented by clean
-  // boundaries, not half-built features.  scoring -> M4      audio -> M5
+  // boundaries, not half-built features.  audio -> M5
 };
 
 /** Deep-frozen so a system cannot quietly retune the game at runtime. Difficulty

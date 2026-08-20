@@ -71,6 +71,7 @@ function startShift() {
   camera.follow(game.state.player.x, game.state.player.y, 0);
 }
 hud.onStart = startShift;
+hud.report.onReplay = startShift;      // GDD §20.2: the report has a replay button
 
 let last = performance.now();
 

@@ -153,3 +153,46 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .toast.urgent{border-left-color:var(--st-final);font-weight:700}
 .toast.bad{border-left-color:var(--coral)}
 .prompt .warn{color:var(--coral)}
+
+/* ── Milestone 4: score readout and the shift report (GDD 11) ─────────────── */
+.hud-score{display:none;font-family:var(--font-mono);font-size:16px;font-weight:700;
+  font-variant-numeric:tabular-nums;color:var(--st-loading);
+  background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px 12px}
+.hud-score.on{display:inline-block}
+.hud-score.bad{color:var(--coral)}
+
+.report-card{max-width:720px;text-align:left}
+.report-card h2{text-align:center}
+.report-card .tag{text-align:center;margin-bottom:22px}
+
+.headline{display:flex;gap:14px;margin-bottom:20px}
+.hl{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 14px;text-align:center}
+.hl-v{display:block;font-family:var(--font-mono);font-size:26px;font-weight:700;
+  font-variant-numeric:tabular-nums}
+.hl-v.bad{color:var(--coral)}
+.hl-of{font-size:15px;color:var(--dim)}
+.hl-l{display:block;font-size:11px;letter-spacing:.1em;color:var(--dim);margin-top:3px}
+
+.r-table{width:100%;border-collapse:collapse;font-family:var(--font-mono);font-size:13px}
+.r-table th{text-align:left;font-size:10px;letter-spacing:.1em;color:var(--dim);
+  font-weight:400;padding:0 8px 6px 0;border-bottom:1px solid var(--line)}
+.r-table td{padding:6px 8px 6px 0;border-bottom:1px solid rgba(51,47,71,.5)}
+.r-table .r-num{font-weight:700}
+.r-table .r-dest{color:var(--dim)}
+.r-table .r-n,.r-table .r-pts{text-align:right;font-variant-numeric:tabular-nums}
+.r-table .r-of{color:var(--dim)}
+.r-table .nil{color:#4a4660}
+.r-table .bad{color:var(--coral)}
+.r-table .r-pts{font-weight:700;color:var(--st-loading)}
+.r-table .r-pts.bad{color:var(--coral)}
+.r-table tr.perfect .r-num::after{content:' ★';color:var(--st-final)}
+
+.r-meta{color:var(--dim);font-size:11px;line-height:1.7;margin-top:14px}
+.oddities{margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.odd{display:flex;justify-content:space-between;gap:16px;font-size:12px;padding:3px 0}
+.odd-l{color:var(--dim)}
+.odd-v{font-family:var(--font-mono);text-align:right}
+.best{margin-top:14px;font-size:12px;color:var(--dim);text-align:center}
+.best.new{color:var(--st-final);font-weight:700}
+.report-card button{display:inline-block;margin-top:18px}

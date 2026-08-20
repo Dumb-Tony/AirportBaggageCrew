@@ -27,7 +27,9 @@ import { createConveyor, stepConveyor } from './entities/conveyor.js';
 import { spawnDueBags, stepBags, rebuildGrid, syncCartBagPositions, absorbIntoContainers }
   from './systems/baggageFlow.js';
 import { createFlights, stepFlights } from './systems/flightSchedule.js';
-import { resetAnnouncements } from './systems/announcements.js';
+import { resetAnnouncements, announce } from './systems/announcements.js';
+import { createScore, createStats, stepScoring, buildReport } from './systems/scoring.js';
+import { SaveSystem } from './systems/save.js';
 import { stepInteraction } from './systems/interaction.js';
 import { countByLocation } from './systems/containment.js';
 import { createCart } from './entities/cart.js';
@@ -63,7 +65,8 @@ export function createInitialState(seed, seedLabel) {
     simTimeMs: 0,
     shift: {
       id: CONFIG.shift.id,
-      endTimeMs: CONFIG.shift.durationMs,
+      endTimeMs: CONFIG.shift.durationMs,   // DERIVED in _authorShift from the last departure
+      ended: false,
       bagSchedule: [],      // filled by Game.reset() from the seeded stream
       nextSpawnIdx: 0,
       tagBase: 0,
@@ -100,14 +103,20 @@ export function createInitialState(seed, seedLabel) {
     },
 
     scan: null,           // the live scanner card, or null
-    score: { points: 0, correct: 0, wrong: 0, missed: 0 },
+    score: createScore(),
+    stats: createStats(),
+    report: null,         // built once, when the shift ends
     announcements: [],
     settings: { showGrid: CONFIG.render.showGrid },
   };
 }
 
 export class Game {
-  constructor({ seed = CONFIG.sim.defaultSeed, seedLabel = CONFIG.sim.seedLabel } = {}) {
+  constructor({ seed = CONFIG.sim.defaultSeed, seedLabel = CONFIG.sim.seedLabel,
+                storage } = {}) {
+    // Storage is injectable so the suite runs against a fake and never writes a high
+    // score into the real browser while testing.
+    this.save = storage === undefined ? new SaveSystem() : new SaveSystem(storage);
     this.bus = new EventBus({ logSize: CONFIG.debug.eventLogSize });
     this.clock = new GameClock({ stepMs: CONFIG.sim.stepMs, maxFrameMs: CONFIG.sim.maxFrameMs });
     this.grid = new SpatialGrid(WORLD.widthM, WORLD.heightM, CONFIG.grid.cellM);
@@ -146,6 +155,16 @@ export class Game {
     const { flightsById, aircraftById } = createFlights(this.state);
     this.state.flightsById = flightsById;
     this.state.aircraftById = aircraftById;
+
+    // The shift ends a short wrap-up after the LAST aircraft is clear, derived rather
+    // than authored. A hardcoded ten minutes left two minutes of empty ramp at the end.
+    let lastClear = 0;
+    for (const f of Object.values(flightsById)) {
+      lastClear = Math.max(lastClear, f.times.departureMs + CONFIG.flight.pushbackMs);
+    }
+    this.state.shift.endTimeMs = lastClear > 0
+      ? lastClear + CONFIG.shift.wrapUpMs
+      : CONFIG.shift.durationMs;
   }
 
   /* ── lifecycle ────────────────────────────────────────────────────────── */
@@ -233,6 +252,11 @@ export class Game {
    */
   step(stepMs, simTimeMs, input) {
     this.state.simTimeMs = simTimeMs;
+    // Once the shift is over nothing moves — not the belt, not the clock-driven flights,
+    // nothing. The report is a snapshot of a stopped airport, and a debug skip past the
+    // end must not quietly keep simulating behind it.
+    if (this.state.shift.ended) return;
+
     const dt = stepMs / 1000;
 
     // The schedule runs FIRST and reads nothing but the clock. Everything below is the
@@ -258,7 +282,32 @@ export class Game {
     stepBags(this.state, dt, this.grid);
     absorbIntoContainers(this.state, simTimeMs, this.bus);
 
-    // Milestone order, once these exist:  scoring.step (M4)
+    // Scoring is a PULL pass over flights that have evaluated but not been scored, so
+    // it cannot double-count and does not care what order anything happened in.
+    stepScoring(this.state, this.bus, simTimeMs);
+
+    if (simTimeMs >= this.state.shift.endTimeMs) this.endShift(simTimeMs);
+  }
+
+  /**
+   * End the shift: freeze the airport, build the report, remember it if it is the best.
+   * Idempotent — a second call is a no-op, so a skip past the end cannot rebuild it.
+   */
+  endShift(simTimeMs = this.state.simTimeMs) {
+    if (this.state.shift.ended) return this.state.report;
+    this.state.shift.ended = true;
+
+    // Anything still evaluated-but-unscored is scored before the snapshot is taken.
+    stepScoring(this.state, this.bus, simTimeMs);
+    this.state.report = buildReport(this.state);
+
+    const { record, improved } = this.save.saveBest(this.state.report);
+    this.state.report.best = record;
+    this.state.report.improved = improved;
+
+    announce(this.state, 'Shift over.', 'info', simTimeMs, this.bus);
+    this.setMode(MODES.REPORT);
+    return this.state.report;
   }
 
   /** Debug: fast-forward simulation time without real frames. GDD §21.8. */
@@ -316,6 +365,14 @@ export class Game {
         expected: f.expectedCount, evaluated: f.evaluated, outcome: { ...f.outcome },
       })),
       announcements: this.state.announcements.length,
+      ended: this.state.shift.ended,
+      score: {
+        points: this.state.score.points,
+        correct: this.state.score.correct,
+        misrouted: this.state.score.misrouted,
+        missed: this.state.score.missed,
+        flightsPerfect: this.state.score.flightsPerfect,
+      },
     };
   }
 
