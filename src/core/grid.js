@@ -46,9 +46,17 @@ export class SpatialGrid {
     const c = this.cellM;
     let x0 = Math.floor((x - radius) / c), x1 = Math.floor((x + radius) / c);
     let y0 = Math.floor((y - radius) / c), y1 = Math.floor((y + radius) / c);
-    if (x0 < 0) x0 = 0; if (y0 < 0) y0 = 0;
-    if (x1 >= this.cols) x1 = this.cols - 1;
-    if (y1 >= this.rows) y1 = this.rows - 1;
+    // Clamped at BOTH ends of both axes, the same way `_index` clamps an insert. Pushing
+    // only the low end up and the high end down left a query centred outside the grid
+    // with x0 > x1, which returns nothing — while `insert` had happily filed the entity
+    // in an edge cell. Anything that ever escaped the world would then be invisible to
+    // targeting even with the player standing on it, turning a recoverable ejection into
+    // GDD §29 "permanently unreachable". Nothing can escape today; this is the backstop
+    // behind the backstop.
+    if (x0 < 0) x0 = 0; if (x0 >= this.cols) x0 = this.cols - 1;
+    if (y0 < 0) y0 = 0; if (y0 >= this.rows) y0 = this.rows - 1;
+    if (x1 >= this.cols) x1 = this.cols - 1; if (x1 < 0) x1 = 0;
+    if (y1 >= this.rows) y1 = this.rows - 1; if (y1 < 0) y1 = 0;
     for (let cy = y0; cy <= y1; cy++) {
       const row = cy * this.cols;
       for (let cx = x0; cx <= x1; cx++) {

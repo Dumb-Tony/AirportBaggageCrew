@@ -66,7 +66,8 @@ export function scoreFlight(state, flight, bus = null, simTimeMs = 0) {
   const earned = o.correct * S.correctBag
                + o.correctPriority * S.priorityBonus
                + o.misrouted * S.misroutedBag
-               + o.missed * S.missedBag;
+               + o.missed * S.missedBag
+               + o.priorityMissed * S.priorityMissPenalty;
 
   // GDD §11.1: a completion bonus for a flight that got every expected bag. "Perfect"
   // means nothing missed AND nothing aboard that should not have been.
@@ -108,6 +109,21 @@ export const onTimePercent = (score) =>
   score.bagsExpected === 0 ? 0 : Math.round((score.correct / score.bagsExpected) * 100);
 
 /** Everything the report needs, computed once when the shift ends. */
+/**
+ * How many DISTINCT bags were mishandled.
+ *
+ * `missed + misrouted` counts a bag flown to the wrong city twice — once as misrouted on
+ * the aircraft that took it, once inside the owed flight’s `expectedCount - correct`. That
+ * let the report print "9 delivered" above "27 mishandled" on a 34-bag shift.
+ */
+export function mishandledBags(state) {
+  let n = 0;
+  for (const bag of Object.values(state.bagsById)) {
+    if (bag.lifecycle === 'missed' || bag.lifecycle === 'misrouted') n++;
+  }
+  return n;
+}
+
 export function buildReport(state) {
   const score = state.score;
   const stats = state.stats;
@@ -126,7 +142,14 @@ export function buildReport(state) {
     bagsExpected: score.bagsExpected,
     correct: score.correct,
     onTimePercent: onTimePercent(score),
-    mishandled: score.missed + score.misrouted,
+    // COUNTED FROM THE BAGS, not by adding two flight-scoped totals. A bag flown to the
+    // wrong city is misrouted on the aircraft that took it AND missing from the flight it
+    // was owed to, so summing those counted it twice: a shift of 34 bags could print
+    // "9 delivered" directly above "27 mishandled", and in the worst case 68 of 34. The
+    // POINTS are deliberately charged twice — losing a bag and then flying it to the
+    // wrong city are two distinct failures — but the headline is a count of bags, and
+    // there are only ever as many bags as there are.
+    mishandled: mishandledBags(state),
     wrongDestination: score.misrouted,
     priorityMissed: score.priorityMissed,
     lines: score.lines.slice(),

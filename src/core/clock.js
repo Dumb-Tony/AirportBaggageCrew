@@ -53,7 +53,12 @@ export class GameClock {
     this.accumulatorMs += dt * this.timeScale;
 
     let steps = 0;
-    while (this.accumulatorMs >= this.stepMs) {
+    // Re-checked every iteration, not just on entry. `endShift` pauses the clock from
+    // INSIDE a step callback, so a frame that banked several steps went on running them
+    // after the pause — which made the final simTimeMs a function of how the real frame
+    // deltas happened to land. Pause is meant to be total by construction, and that has
+    // to hold at step granularity, not merely at frame granularity.
+    while (!this.paused && this.accumulatorMs >= this.stepMs) {
       this.accumulatorMs -= this.stepMs;
       this.simTimeMs += this.stepMs;
       this.stepCount++;

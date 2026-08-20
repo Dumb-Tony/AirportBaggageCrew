@@ -29,6 +29,7 @@ import { aircraftHoldZone, holdContains } from '../src/entities/aircraft.js';
 import { FLIGHT_DEFS, gateConflicts, standWindow } from '../src/data/flights.js';
 import { WALLS, BOUNDS, ANCHORS, STANDS, rectContains } from '../src/data/airport.js';
 import { stateAt, isHoldOpen } from '../src/systems/flightSchedule.js';
+import { setPlacard } from '../src/systems/interaction.js';
 import { playShift, SKILLS, CrewBot } from './_bot.js';
 import { fuzzShift, guidedFuzz, restartTorture } from './_invariants.js';
 
@@ -279,6 +280,50 @@ lines.push('--- C. GDD §29 UX ---');
   g.togglePause();
   g.frame(FRAME_MS, null);
   ok('C7 and unpausing starts it again', sim() !== before);
+
+  /* Overlapping carts must not decide for you. Two carts on the same square metre used to
+     be resolved by whichever was a centimetre nearer, so with a bag in hand the choice
+     between Atlanta's cart and Chicago's came down to nothing you could see. */
+  const ov = newGame(); ov.startShift();
+  const c1 = ov.state.cartsById.cart_1, c2 = ov.state.cartsById.cart_2;
+  const inputC = new Input(window);
+  setPlacard(ov.state, c1, 'flight_AB221', ov.bus, 0);
+  setPlacard(ov.state, c2, 'flight_MC184', ov.bus, 0);
+  // Park them almost on top of each other, with the WRONG one marginally nearer.
+  c1.x = 20; c1.y = 20; c1.rot = 0;
+  c2.x = 20.6; c2.y = 20; c2.rot = 0;
+  ov.state.player.x = 20.9; ov.state.player.y = 20;
+
+  const atl = makeBag(ov, 'flight_AB221', { x: 20.9, y: 20 });
+  moveBag(ov.state, atl, { type: 'carried', id: ov.state.player.id }, ov.bus, 0);
+  ov.frame(FRAME_MS, inputC);
+  eq('C14 holding an ATL bag between two carts targets the ATL one',
+    ov.state.player.targetCartId, c1.id);
+  inputC._debugPress('KeyE'); ov.frame(FRAME_MS, inputC); inputC._debugRelease('KeyE');
+  ok('C15 and E loads it there, not into the nearer neighbour',
+    c1.bagIds.includes(atl.id) && !c2.bagIds.includes(atl.id));
+
+  // With hands empty there is no intent to read, so nearest still wins — and a wrong
+  // load is still allowed when no matching cart is in reach (GDD §31.1.8).
+  ov.frame(FRAME_MS, inputC);
+  eq('C16 with empty hands the nearest cart wins again', ov.state.player.targetCartId, c2.id);
+  const ord = makeBag(ov, 'flight_MC184', { x: 20.9, y: 20 });
+  moveBag(ov.state, ord, { type: 'carried', id: ov.state.player.id }, ov.bus, 0);
+  c2.bagIds.length = 0;
+  for (let i = 0; i < c2.capacitySlots; i++) {
+    const filler = makeBag(ov, 'flight_MC184', { x: c2.x, y: c2.y });
+    moveBag(ov.state, filler, { type: 'cart', id: c2.id }, ov.bus, 0);
+  }
+  ov.frame(FRAME_MS, inputC);
+  // A FULL matching cart earns no preference — the rule is "matching AND has room". The
+  // fallback is plain nearest, which here is still the full one, and E then sets the bag
+  // down rather than quietly loading it into the other flight's cart. Dropping is the
+  // right failure: a silent misroute would be the game deciding for you.
+  eq('C17 a full matching cart earns no preference', ov.state.player.targetCartId, c2.id);
+  const atlCartBefore = c1.bagIds.length;
+  inputC._debugPress('KeyE'); ov.frame(FRAME_MS, inputC); inputC._debugRelease('KeyE');
+  eq('C18 and E sets the bag down instead of misrouting it', ord.location.type, 'floor');
+  eq('C19 the other cart is untouched', c1.bagIds.length, atlCartBefore);
 
   // "Restart resets every entity and timer cleanly."
   const a = newGame(4321); a.startShift(); a.skipMs(120000);
@@ -606,7 +651,10 @@ lines.push('--- H. fuzz: random input against every invariant, every step ---');
 
   // Guided: the real bot with a hand tremor, so the fuzz reaches the aircraft and makes
   // mistakes THERE — loading, misrouting, taking bags back out, hold closing on a cart.
-  const gz = guidedFuzz(11, 0.02);
+  // A LOW tremor. The point is that a clumsy crew still completes the loop and therefore
+  // exercises loading, misrouting and hold closure under fuzz — not to find the noise
+  // level at which the game becomes unplayable, which the soak measures separately.
+  const gz = guidedFuzz(11, 0.005);
   ok('H5 a clumsy crew still raises no error', !gz.threw,
     gz.threw && String(gz.threw).split('\n')[0]);
   eq('H6 and still violates no invariant', gz.violations.length, 0,

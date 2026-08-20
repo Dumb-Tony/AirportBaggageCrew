@@ -17,6 +17,7 @@ import { ShiftReport } from './shiftReport.js';
 import { SettingsPanel } from './settings.js';
 import { visibleAnnouncements } from '../systems/announcements.js';
 import { verdictFor } from '../systems/scoring.js';
+import { FLIGHT_DEFS } from '../data/flights.js';
 
 const key = (k) => `<kbd>${k}</kbd>`;
 
@@ -55,16 +56,16 @@ export class Hud {
         <div class="card">
           <h1>Airport Baggage Crew</h1>
           <p class="tag">Simple physical work, hilarious logistical panic.</p>
-          <p class="milestone">Milestone 5 &mdash; onboarding and juice</p>
+          <p class="milestone" id="titleMilestone">Milestone 6 &mdash; balance and hardening</p>
           <button class="primary" id="btnStart">Start shift</button>
           <button id="btnTitleSettings">Settings</button>
           <p class="hint"><kbd>WASD</kbd> move &middot; <kbd>E</kbd> grab, load, hitch &middot;
              <kbd>F</kbd> drive, placard &middot; <kbd>Space</kbd> throw &middot;
              <kbd>Q</kbd> scan &middot; <kbd>Esc</kbd> pause</p>
-          <p class="scope">Three flights, fifty bags, eight minutes. Sort off the belt
-             into the marked carts, haul them to the gate, and get them in the hold before
-             it closes. <b>The aircraft leave on the clock whether you are ready or not</b>
-             &mdash; and now they tell you what you managed.</p>
+          <p class="scope" id="titleScope">Sort off the belt into the marked carts, haul
+             them to the gate, and get them in the hold before it closes.
+             <b>The aircraft leave on the clock whether you are ready or not</b>
+             &mdash; and afterwards they tell you exactly what you managed.</p>
         </div>
       </div>
 
@@ -104,11 +105,30 @@ export class Hud {
     $('btnTitleSettings').onclick = () => this.settings.show();
 
     this.el.total.textContent = GameClock.formatMs(this.game.state.shift.endTimeMs);
+
+    /* The shift the title card describes is DERIVED, never typed. It read "fifty bags,
+       eight minutes" for a whole milestone after the balance pass made it thirty-four and
+       eleven and a half — on the first screen anybody sees. Numbers a human retypes are
+       numbers that go stale, so this one reads the timetable. */
+    const flights = FLIGHT_DEFS.length;
+    const bags = FLIGHT_DEFS.reduce((n, f) => n + f.bagCount, 0);
+    const mins = GameClock.formatMs(this.game.state.shift.endTimeMs);
+    const scope = $('titleScope');
+    if (scope) {
+      scope.innerHTML = `<b>${flights} flights, ${bags} bags, ${mins}.</b> ` + scope.innerHTML;
+    }
   }
 
   /** The single funnel: which screen is up is a function of mode, nothing else. */
   _applyMode() {
     const m = this.game.state.mode;
+    // An open settings panel is an 86%-opaque overlay. R restarts from the pause screen
+    // WITHOUT closing it, so the shift came back with the belt feeding and the clock
+    // running behind a blurred sheet, and Escape only got your view back. This funnel is
+    // the one place every mode change passes through, so it is the one place to fix it.
+    if (m !== MODES.TITLE && m !== MODES.PAUSED && this.settings && this.settings.open) {
+      this.settings.hide();
+    }
     this.el.title.classList.toggle('on', m === MODES.TITLE);
     this.el.pause.classList.toggle('on', m === MODES.PAUSED);
     this.el.top.classList.toggle('on',

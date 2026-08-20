@@ -96,8 +96,20 @@ export function gateConflicts() {
  *
  * @param {import('../core/rng.js').Rng} rng
  */
-export function buildBagSchedule(rng) {
+export function buildBagSchedule(rng, assist = 1) {
   const out = [];
+  /*
+   * The assist scales the flight windows at one authoring site (`createFlights` ->
+   * `scaleTimes`) and the bag timetable has to move with them, or the shift is RESHAPED
+   * rather than lengthened. On Unhurried the late bags — GDD §20.4’s whole twist, "they
+   * arrive after final call, when the player has moved on" — landed two minutes BEFORE
+   * final call, SK307 fed the belt three minutes before its aircraft existed, and the
+   * last eight minutes of the shift had no arrivals at all.
+   *
+   * Applied to the drawn result rather than to the inputs, so the RNG stream is
+   * bit-identical at every assist level and the same seed still authors the same shift.
+   */
+  const k = assist > 0 ? assist : 1;
 
   for (const f of FLIGHT_DEFS) {
     const t = f.twist;
@@ -139,7 +151,7 @@ export function buildBagSchedule(rng) {
 
     times.forEach((atMs, i) => {
       out.push({
-        atMs: Math.round(atMs),
+        atMs: Math.round(atMs * k),
         flightId: f.id,
         priority: priorityIdx.has(i),
         weightClass: rng.chance(t.heavyChance) ? 'heavy' : (rng.chance(0.18) ? 'light' : 'normal'),

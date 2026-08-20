@@ -25,6 +25,12 @@ export const DEFAULT_BINDINGS = Object.freeze({
   debug:     ['F3'],
 });
 
+/** Is this event aimed at something with keyboard behaviour of its own? */
+function isFormControl(t) {
+  return !!(t && t !== document.body && typeof t.closest === 'function' &&
+            t.closest('input,button,select,textarea,[contenteditable]'));
+}
+
 export class Input {
   constructor(target = window, bindings = DEFAULT_BINDINGS) {
     this.target = target;
@@ -56,6 +62,17 @@ export class Input {
   attach() {
     const add = (t, type, fn) => { t.addEventListener(type, fn); this._bound.push([t, type, fn]); };
     add(this.target, 'keydown', (e) => {
+      /*
+       * A key pressed INSIDE a form control belongs to that control.
+       *
+       * This listener sits on `window` and swallowed the default action of every bound
+       * code regardless of where the event came from — so an Arrow key could not move a
+       * settings slider and Space could not press a focused button, while Enter, being
+       * unbound, still worked. Inconsistently broken is worse than uniformly broken, and
+       * GDD §16.6 requires keyboard-only operation of exactly the panel that exists to
+       * satisfy §16.6.
+       */
+      if (isFormControl(e.target)) return;
       // Never swallow browser reload/devtools; do swallow the keys we bind, so Space
       // does not scroll the page and F3 does not open Find.
       if (this._codeToActions.has(e.code)) e.preventDefault();
@@ -64,6 +81,8 @@ export class Input {
       this._pressed.add(e.code);
     });
     add(this.target, 'keyup', (e) => {
+      // No form-control guard here, deliberately: a key that went down on the canvas and
+      // came up over a button must still be released, or it stays held forever.
       this._down.delete(e.code);
       this._released.add(e.code);
     });

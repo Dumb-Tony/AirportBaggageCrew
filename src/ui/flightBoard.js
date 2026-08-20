@@ -22,8 +22,12 @@ const STATUS = {
   SCHEDULED:      { cls: 'st-scheduled', text: 'SCHEDULED' },
   BAG_ACCEPTANCE: { cls: 'st-accept',    text: 'ACCEPTING BAGS' },
   LOADING:        { cls: 'st-loading',   text: 'LOADING' },
-  FINAL_BAG_CALL: { cls: 'st-final',     text: 'FINAL BAG CALL' },
-  HOLD_CLOSING:   { cls: 'st-closing',   text: 'HOLD CLOSED' },
+  // RED at final bag call, not at hold closing. GDD §16.3 puts "red/pulsing" on "final
+  // bag call/hold closing" together, and the ladder was shifted a state late: the last
+  // moment you can still act read amber, and red arrived only once the hold had shut and
+  // there was nothing left to do about it. Alarm belongs on the actionable state.
+  FINAL_BAG_CALL: { cls: 'st-closing',   text: 'FINAL BAG CALL' },
+  HOLD_CLOSING:   { cls: 'st-departed',  text: 'HOLD CLOSED' },
   PUSHBACK:       { cls: 'st-closing',   text: 'PUSHING BACK' },
   DEPARTED:       { cls: 'st-departed',  text: 'DEPARTED' },
 };

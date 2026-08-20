@@ -198,6 +198,12 @@ export const CONFIG = {
   score: {
     correctBag: 100,
     priorityBonus: 50,        // additional, on top of correctBag
+    // GDD §20.2 asks for a "priority bag bonus/penalty". Only the bonus existed, so a
+    // priority bag you LOST cost exactly what any other lost bag cost — which made
+    // SK307's authored twist (§20.4: its priority bags arrive late) a prize you could win
+    // and never a stake you could lose. This sits on top of missedBag the same way the
+    // bonus sits on top of correctBag, and mirrors it.
+    priorityMissPenalty: -50,
     misroutedBag: -250,       // wrong aircraft, discovered at departure
     missedBag: -150,
     perfectFlightBonus: 250,  // §11.1 asks for a completion bonus without naming a value

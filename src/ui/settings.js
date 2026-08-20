@@ -30,10 +30,19 @@ export const DEFAULT_SETTINGS = {
   assist: 1,
 };
 
+/*
+ * Re-proportioned at Milestone 6. These multiply the AUTHORED shift, which the balance
+ * pass lengthened from 8:07 to 11:32 — so the old 1.25 and 1.6 quietly became fourteen
+ * and eighteen minute shifts, and eighteen minutes of this is not a kindness.
+ *
+ * An assist deliberately takes the shift past the 8-12 minutes GDD §3.3 scopes. That
+ * window describes the shift AS DESIGNED; §16.6 asks for an accessibility override of it,
+ * and more time is the whole substance of the override.
+ */
 export const ASSIST_LEVELS = [
   { v: 1,    label: 'Standard',  note: 'The shift as designed.' },
-  { v: 1.25, label: 'Relaxed',   note: 'A quarter more time on every flight.' },
-  { v: 1.6,  label: 'Unhurried', note: 'Over half again. Nothing else changes.' },
+  { v: 1.15, label: 'Relaxed',   note: 'A sixth more time on every flight.' },
+  { v: 1.35, label: 'Unhurried', note: 'A third again. Nothing else changes.' },
 ];
 
 export class SettingsPanel {

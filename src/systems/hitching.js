@@ -73,10 +73,37 @@ export function hitch(state, vehicle, cart, bus = null, simTimeMs = 0) {
   if (!cart || !isFree(cart)) return false;
   if (trainOf(state, vehicle).length >= MAX_TRAIN) return false;
 
+  /*
+   * PLACE THE CART ON THE CONSTRAINT NOW, rather than letting the first `updateTrain`
+   * snap it there next step.
+   *
+   * A towed cart is POSITIONED, not integrated, and the stability model reads its motion
+   * by differencing position and heading across one step. Hitching only rewrote the link
+   * ids, so the first towed step saw the cart teleport from wherever it was parked — up
+   * to hitchRangeM away, at any heading — onto the drawbar, and divided that by 1/60 s.
+   * Coming at a cart square-on from the side, that is a yaw rate near 90 rad/s and a
+   * lateral load in the thousands: a loaded cart threw a bag off with the tractor
+   * STANDING STILL. It also counted every angled hitch as a hard corner, so GDD §11.3's
+   * "cart corners taken above safe speed" was really counting hitches and wall scrapes.
+   *
+   * The hitch point is read BEFORE the links are written. `hitchPointOf` resolves the
+   * TAIL of the train, so once `cart` is attached the tail IS `cart` — and the snap would
+   * place it relative to its own tow point, which moves it a metre and a half sideways
+   * for no reason and spills a load off a stationary train.
+   */
+  const hp = hitchPointOf(state, vehicle);
+
   const tail = tailOf(state, vehicle);
   if (tail) { tail.nextCartId = cart.id; cart.hitchedToId = tail.id; }
   else { vehicle.nextCartId = cart.id; cart.hitchedToId = vehicle.id; }
   cart.nextCartId = null;
+
+  let dx = cart.x - hp.x, dy = cart.y - hp.y;
+  let d = Math.hypot(dx, dy);
+  if (d < 1e-6) { dx = -Math.cos(cart.rot); dy = -Math.sin(cart.rot); d = 1; }
+  cart.x = hp.x + (dx / d) * CONFIG.cart.linkM;
+  cart.y = hp.y + (dy / d) * CONFIG.cart.linkM;
+  cart.rot = Math.atan2(-dy / d, -dx / d);
 
   if (bus) bus.emit(EVENTS.CART_HITCHED, { cartId: cart.id, toId: cart.hitchedToId }, simTimeMs);
   return true;

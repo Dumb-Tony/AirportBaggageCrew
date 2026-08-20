@@ -173,7 +173,9 @@ export class Game {
    *  renumber every bag in an already-balanced shift. */
   _authorShift() {
     this.state.shift.tagBase = this.rng.world.int(100000, 899999);
-    this.state.shift.bagSchedule = buildBagSchedule(this.rng.world);
+    // Same assist as the flights below: the timetable and the schedule have to be
+    // stretched by the same factor or the shift is reshaped instead of lengthened.
+    this.state.shift.bagSchedule = buildBagSchedule(this.rng.world, this.settings.assist || 1);
     // Flights need the timetable, because expectedCount counts bags that were scheduled
     // whether or not the conveyor ever gets to them.
     resetAnnouncements();
@@ -268,10 +270,17 @@ export class Game {
    */
   frame(realDeltaMs, input = null) {
     this.frames++;
-    return this.clock.advance(realDeltaMs, (stepMs, simTimeMs) => {
+    const steps = this.clock.advance(realDeltaMs, (stepMs, simTimeMs) => {
       this.step(stepMs, simTimeMs, input);
       if (input) input.endStep();   // input edges are consumed per SIM step, not per frame
     });
+    /* A PAUSED frame runs zero steps, so nothing drained the edge buffer and every key
+       tapped behind the pause card fired the instant you resumed. Tap F then E while
+       paused and you got out of the tractor AND grabbed something on the first step back.
+       Draining here keeps "edges align to simulation steps" true for every running frame
+       and makes a paused keypress mean nothing, which is what a paused game promises. */
+    if (input && steps === 0) input.endStep();
+    return steps;
   }
 
   /**

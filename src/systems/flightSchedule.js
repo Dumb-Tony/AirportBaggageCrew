@@ -125,7 +125,14 @@ export function stepFlights(state, dtSec, bus, simTimeMs) {
 
       // Evaluation happens ONCE, at pushback. GDD §5.2: at departure the game evaluates
       // every expected bag's outcome.
-      if (next === 'PUSHBACK' && !flight.evaluated) {
+      //
+      // STATE REACHED, not transition INTO. Bound to the transition, a single step that
+      // crossed the whole pushback window would skip evaluation while `departLoad` still
+      // ran — emptying the manifest and leaving the flight classified by nothing. Not
+      // reachable at a 16.67 ms step against a 5 s pushback, but it becomes reachable the
+      // moment anyone raises stepMs, lowers pushbackMs, or restores a saved state.
+      // `evaluateFlight` already guards itself, so this costs nothing.
+      if (stateIndex(next) >= stateIndex('PUSHBACK') && !flight.evaluated) {
         evaluateFlight(state, flight, bus, simTimeMs);
       }
       // The aircraft physically leaves with its load still aboard.
@@ -193,6 +200,16 @@ export function evaluateFlight(state, flight, bus, simTimeMs) {
     if (bag.priority) priorityMissed++;
     if (bus) bus.emit(EVENTS.BAG_MISSED, { bagId, flightId: flight.id }, simTimeMs);
   }
+
+  /*
+   * `missed` is a SUBTRACTION over the timetable; `priorityMissed` is a COUNT from the
+   * ownership walk. They describe the same set of bags, so the specific one cannot exceed
+   * the total — and without this they can disagree, because the walk sees every bag the
+   * flight owns while the subtraction only ever sees `expectedCount`. A flight reported
+   * as PERFECT could carry a priority miss, which is a contradiction in terms and, once
+   * the priority penalty existed, cost points on a flawless flight.
+   */
+  priorityMissed = Math.min(priorityMissed, missed);
 
   flight.outcome = { correct, correctPriority, misrouted, missed, priorityMissed };
   flight.evaluated = true;

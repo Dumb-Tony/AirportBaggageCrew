@@ -21,6 +21,7 @@ import { recordScan, weightOf } from '../entities/bag.js';
 import { padAt } from '../data/airport.js';
 import { FLIGHT_DEFS } from '../data/flights.js';
 import { chargeFrac } from '../entities/player.js';
+import { pushOutOfWalls } from './physics.js';
 import { cartContains, cartRoomFor, nextPlacard } from '../entities/cart.js';
 import { dismountPoint } from '../entities/tractor.js';
 import { hitchCandidate, hitch, unhitchTail, trainOf } from './hitching.js';
@@ -61,16 +62,36 @@ export function findTarget(state, grid) {
   return best;
 }
 
-/** The cart the player is standing at, if any. Reach expands the cart footprint. */
+/**
+ * The cart the player is standing at, if any. Reach expands the cart footprint.
+ *
+ * CARTS CAN OVERLAP — parked, towed past one another, or shunted by a tractor — and
+ * standing where two of them claim the same square metre made nearest-wins pick whichever
+ * happened to be a centimetre closer. With a bag in your hands that is the difference
+ * between loading Atlanta's cart and loading Chicago's, decided by nothing you can see.
+ *
+ * So a cart whose PLACARD MATCHES the bag you are holding, and which has room for it,
+ * wins over a nearer one. That is the intent you already declared when you set the
+ * placard, and it makes the ambiguous case do the obvious thing. It never blocks a wrong
+ * load (GDD §31.1.8): with no matching cart in reach the nearest still wins, and E still
+ * puts the bag wherever you are standing.
+ */
 export function findCart(state) {
   const p = state.player;
+  const held = p.carryingBagId ? state.bagsById[p.carryingBagId] : null;
   let best = null, bestD = Infinity;
+  let match = null, matchD = Infinity;
+
   for (const cart of Object.values(state.cartsById)) {
     if (!cartContains(cart, p.x, p.y, CONFIG.player.reachM)) continue;
     const d = Math.hypot(cart.x - p.x, cart.y - p.y);
     if (d < bestD) { bestD = d; best = cart; }
+    if (held && cart.placardFlightId === held.flightId && d < matchD &&
+        cartRoomFor(cart, state, held).ok) {
+      matchD = d; match = cart;
+    }
   }
-  return best;
+  return match || best;
 }
 
 /**
@@ -237,6 +258,15 @@ export function exitVehicle(state, bus = null, simTimeMs = 0) {
   const spot = dismountPoint(v);
   p.x = spot.x; p.y = spot.y;
   p.vx = 0; p.vy = 0;
+  /*
+   * The dismount is a fixed 1.15 m to the left of the tractor, whose own collision radius
+   * is 1.10 m — so parked hard against a wall it puts the crew 5 cm INSIDE it.
+   * `moveWithWalls` only commits a move whose destination is clear, and never updates the
+   * position while blocked, so from inside a wall no direction is walkable at all and the
+   * game reads as frozen. `pushOutOfWalls` is the cleanup pass for exactly this case:
+   * anything POSITIONED rather than moved.
+   */
+  pushOutOfWalls(p, p.radiusM);
   v.driverId = null;
   // A vehicle nobody is driving does not roll away on its own.
   v.speed = 0; v.yawRate = 0; v.vx = 0; v.vy = 0;

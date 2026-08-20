@@ -48,6 +48,11 @@ export function spawnDueBags(state, rng, simTimeMs, bus) {
     const flight = state.flightsById[bag.flightId];
     if (flight && !flight.expectedBagIds.includes(bag.id)) flight.expectedBagIds.push(bag.id);
 
+    // The bag records the LIVE departure, not the authored one. `createBag` can only see
+    // the frozen FLIGHT_DEFS, which is the wrong shift the moment an assist is in play —
+    // and the scanner card counts down from this field.
+    if (flight) bag.expectedDepartureMs = flight.times.departureMs;
+
     shift.nextSpawnIdx++;
     shift.spawned++;
     n++;

@@ -41,7 +41,14 @@ export class ScannerCard {
     if (scan.bagId !== this._shownBagId || scan.atMs !== this._shownAt) {
       this._shownBagId = scan.bagId;
       this._shownAt = scan.atMs;
-      const flight = flightById(bag.flightId);
+      // The LIVE flight, not the static def. The difficulty assist stretches every
+      // window at one place (createFlights -> scaleTimes) and writes the result into
+      // state.flightsById; anything reading FLIGHT_DEFS instead is reading the shift the
+      // player did NOT choose. On Unhurried this card counted down to a departure five
+      // minutes before the real one and then sat on 0:00 while the hold was still open,
+      // disagreeing with the board on the same screen — exactly the duplicated
+      // flight-time rule GDD §31.3 forbids.
+      const flight = state.flightsById[bag.flightId] || flightById(bag.flightId);
       const gateNo = bag.gateId.replace('gate_', '');
 
       this.el.className = 'scan-card on ' + scan.verdict;
@@ -56,8 +63,17 @@ export class ScannerCard {
     }
 
     if (this._countdown) {
-      const left = Math.max(0, bag.expectedDepartureMs - state.simTimeMs);
-      this._countdown.textContent = GameClock.formatMs(left);
+      const live = state.flightsById[bag.flightId];
+      const departsMs = live ? live.times.departureMs : bag.expectedDepartureMs;
+      const left = Math.max(0, departsMs - state.simTimeMs);
+      // Diffed like every other panel. formatMs floors to whole seconds, so this wrote
+      // the SAME string 59 frames out of 60 — and every write dirties layout, which the
+      // next frame's getBoundingClientRect then has to flush synchronously (GDD §24.2).
+      const txt = GameClock.formatMs(left);
+      if (txt !== this._lastCountdown) {
+        this._countdown.textContent = txt;
+        this._lastCountdown = txt;
+      }
     }
   }
 
