@@ -41,6 +41,10 @@ export class ScannerCard {
     if (scan.bagId !== this._shownBagId || scan.atMs !== this._shownAt) {
       this._shownBagId = scan.bagId;
       this._shownAt = scan.atMs;
+      // The rebuild below creates a fresh countdown node reading "--:--", so the diff has
+      // to forget what the OLD node said. Scan twice inside one second and the formatted
+      // string is unchanged, the write is skipped, and the card sits on the placeholder.
+      this._lastCountdown = null;
       // The LIVE flight, not the static def. The difficulty assist stretches every
       // window at one place (createFlights -> scaleTimes) and writes the result into
       // state.flightsById; anything reading FLIGHT_DEFS instead is reading the shift the

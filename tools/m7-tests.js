@@ -42,7 +42,7 @@ import { createBag } from '../src/entities/bag.js';
 import { memoryStorage } from '../src/systems/save.js';
 import { moveBag, assertContainment } from '../src/systems/containment.js';
 import { validateChain, hitch } from '../src/systems/hitching.js';
-import { enterVehicle } from '../src/systems/interaction.js';
+import { enterVehicle, exitVehicle } from '../src/systems/interaction.js';
 import { aircraftHoldZone } from '../src/entities/aircraft.js';
 import { FLIGHT_STATES, stateIndex, isHoldOpen } from '../src/systems/flightSchedule.js';
 import { DebugOverlay } from '../src/dev/debugOverlay.js';
@@ -293,6 +293,21 @@ lines.push('--- A. GDD 21.5 domain events actually reach a subscriber ---');
     const i2 = new Input(window);
     i2._debugPress('KeyD');
     for (let i = 0; i < 600; i++) { v2.speed = CONFIG.tractor.maxSpeed; g2.frame(FRAME_MS, i2); }
+    i2._debugRelease('KeyD');
+
+    /* RECOVERED (GDD §24.3). The one event that cannot happen during competent play, so
+       it has to be provoked: put the crew inside the sort-room wall — the exact state
+       `exitVehicle` used to be able to produce — and press X. From in there no direction
+       is walkable, so if this did not fire the game would simply be frozen. */
+    exitVehicle(g2.state, g2.bus, g2.state.simTimeMs);
+    const stuck = g2.state.player;
+    stuck.x = 33.7; stuck.y = 30;                    // inside room_e2 (x 33.4-34.0)
+    g2.frame(FRAME_MS, i2);
+    const wedged = { x: stuck.x, y: stuck.y };
+    i2._debugPress('KeyX'); g2.frame(FRAME_MS, i2); i2._debugRelease('KeyX');
+    ok('A2b X frees a player wedged in a wall',
+      Math.hypot(stuck.x - wedged.x, stuck.y - wedged.y) > 0.1,
+      `${wedged.x},${wedged.y} -> ${stuck.x.toFixed(2)},${stuck.y.toFixed(2)}`);
   }
 
   /* ── the assertions ──────────────────────────────────────────────────────
@@ -345,6 +360,11 @@ lines.push('--- A. GDD 21.5 domain events actually reach a subscriber ---');
     // else means the pull pass double-counted or scored a flight twice.
     [EVENTS.SCORE_CHANGED]:    (e) => known(S.flightsById, e.flightId) &&
                                       finite(e.delta) && e.total === e.delta,
+    // GDD §24.3's escape hatch. `ids` names whatever it actually freed — the player, or
+    // the tractor and any cart still on its drawbar.
+    [EVENTS.RECOVERED]:        (e) => Array.isArray(e.ids) && e.ids.length > 0 &&
+                                      e.ids.every((id) => id === S2.player.id ||
+                                        known(S2.cartsById, id) || known(S2.vehiclesById, id)),
   };
 
   let n = 3;

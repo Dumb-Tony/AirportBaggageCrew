@@ -20,6 +20,19 @@ import { moveBag } from './containment.js';
 
 const MAX_TRAIN = 16;   // runaway guard: a cycle must never spin forever
 
+/** Put one cart's bags back in its slots. The same rule `syncCartBagPositions` applies to
+ *  every cart once a step; needed here because `hitch` moves a cart after that has run. */
+function pinCartLoad(state, cart) {
+  for (let i = 0; i < cart.bagIds.length; i++) {
+    const bag = state.bagsById[cart.bagIds[i]];
+    if (!bag) continue;
+    const p = cartSlotWorld(cart, i);
+    bag.x = p.x; bag.y = p.y;
+    bag.vx = 0; bag.vy = 0;
+    bag.rot = cart.rot + bag.appearance.wobble * 0.4;
+  }
+}
+
 /** Cart ids towed by this vehicle, nose to tail. */
 export function trainOf(state, vehicle) {
   const out = [];
@@ -104,6 +117,14 @@ export function hitch(state, vehicle, cart, bus = null, simTimeMs = 0) {
   cart.x = hp.x + (dx / d) * CONFIG.cart.linkM;
   cart.y = hp.y + (dy / d) * CONFIG.cart.linkM;
   cart.rot = Math.atan2(-dy / d, -dx / d);
+  // `linkM` is 1.75 and `hitchRangeM` is 3.0, so a cart standing NEARER than the drawbar
+  // gets pushed AWAY from the tow point — into a wall, if one happens to be behind it.
+  // `updateTrain` pushes after positioning for the same reason; so must this.
+  pushOutOfWalls(cart, Math.max(CONFIG.cart.lengthM, CONFIG.cart.widthM) * 0.5);
+  // The load is pinned once a step, right after the train is placed, and `hitch` runs
+  // LATER in the step than that — so without this a loaded cart is drawn a metre from its
+  // own bags for exactly one frame. CLAUDE.md states the invariant it would break.
+  pinCartLoad(state, cart);
 
   if (bus) bus.emit(EVENTS.CART_HITCHED, { cartId: cart.id, toId: cart.hitchedToId }, simTimeMs);
   return true;
@@ -164,12 +185,20 @@ export function updateTrain(state, vehicle, dtSec, bus = null, simTimeMs = 0) {
     cart.x = parentPoint.x + ux * C.linkM;
     cart.y = parentPoint.y + uy * C.linkM;
     cart.rot = Math.atan2(-uy, -ux);          // the cart faces its parent
+
+    /* The CONSTRAINT solution, before any wall correction. The stability model below
+       differences position across one step, and `pushOutOfWalls` is a teleport — so a
+       cart scraping the sort-room doorway was measured as having moved most of a metre in
+       16 ms, which is a lateral load in the thousands and a bag off the back. A wall
+       correction is the world pushing the cart, not the driver throwing it about, and
+       GDD §11.3's "corners taken above safe speed" should count corners. */
+    const solvedX = cart.x, solvedY = cart.y;
     pushOutOfWalls(cart, radius);
 
     /* stability: lateral load is speed x yaw rate, weighted by how full the bed is */
     if (dtSec > 0) {
       cart.rolledM += Math.hypot(cart.x - prevX, cart.y - prevY);   // turns the wheels
-      const moved = Math.hypot(cart.x - prevX, cart.y - prevY) / dtSec;
+      const moved = Math.hypot(solvedX - prevX, solvedY - prevY) / dtSec;
       const omega = angleDelta(cart.rot, prevRot) / dtSec;
       const lat = Math.abs(moved * omega) * (0.5 + cartFillFrac(cart));
 

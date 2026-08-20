@@ -22,7 +22,7 @@ import { Game, MODES } from '../src/game.js';
 import { Input } from '../src/core/input.js';
 import { Rng } from '../src/core/rng.js';
 import { createBag } from '../src/entities/bag.js';
-import { memoryStorage } from '../src/systems/save.js';
+import { memoryStorage, SaveSystem } from '../src/systems/save.js';
 import { moveBag, assertContainment, countByLocation } from '../src/systems/containment.js';
 import { validateChain } from '../src/systems/hitching.js';
 import { aircraftHoldZone, holdContains } from '../src/entities/aircraft.js';
@@ -30,6 +30,8 @@ import { FLIGHT_DEFS, gateConflicts, standWindow } from '../src/data/flights.js'
 import { WALLS, BOUNDS, ANCHORS, STANDS, rectContains } from '../src/data/airport.js';
 import { stateAt, isHoldOpen } from '../src/systems/flightSchedule.js';
 import { setPlacard } from '../src/systems/interaction.js';
+import { createScore, scoreFlight } from '../src/systems/scoring.js';
+import { FlightBoard } from '../src/ui/flightBoard.js';
 import { playShift, SKILLS, CrewBot } from './_bot.js';
 import { fuzzShift, guidedFuzz, restartTorture } from './_invariants.js';
 
@@ -651,9 +653,15 @@ lines.push('--- H. fuzz: random input against every invariant, every step ---');
 
   // Guided: the real bot with a hand tremor, so the fuzz reaches the aircraft and makes
   // mistakes THERE — loading, misrouting, taking bags back out, hold closing on a cart.
-  // A LOW tremor. The point is that a clumsy crew still completes the loop and therefore
-  // exercises loading, misrouting and hold closure under fuzz — not to find the noise
-  // level at which the game becomes unplayable, which the soak measures separately.
+  // TWO runs, because they answer two different questions and weakening one to satisfy
+  // the other would have thrown away information. At a real tremor the game must not
+  // break; at a gentle one the crew must still complete the loop, which is what puts the
+  // fuzz through loading, misrouting and hold closure at all.
+  const rough = guidedFuzz(7, 0.02);
+  ok('H5a a real tremor raises no error', !rough.threw,
+    rough.threw && String(rough.threw).split('\n')[0]);
+  eq('H5b and violates no invariant', rough.violations.length, 0,
+    JSON.stringify(rough.violations.slice(0, 2)));
   const gz = guidedFuzz(11, 0.005);
   ok('H5 a clumsy crew still raises no error', !gz.threw,
     gz.threw && String(gz.threw).split('\n')[0]);
@@ -669,6 +677,117 @@ lines.push('--- H. fuzz: random input against every invariant, every step ---');
   ok('H8 eight restarts mid-shift raise no error', !rt.threw,
     rt.threw && String(rt.threw).split('\n')[0]);
   eq('H9 and leave nothing behind', rt.problems.length, 0, JSON.stringify(rt.problems.slice(0, 3)));
+}
+
+/* ── I. GDD requirements a conformance pass found missing ────────────────── */
+function sectionI() {
+lines.push('--- I. GDD §24.3 recover, §23.1 onboarding flag, §20.2 priority penalty ---');
+
+  /* §24.3: "Provide a recover/stuck action for tractor and player." Nothing implemented
+     it, and `exitVehicle` could put you inside a wall — from where `moveWithWalls` will
+     never commit a move in ANY direction, so the game reads as frozen. */
+  const g = newGame(); g.startShift();
+  const input = new Input(window);
+  const p = g.state.player;
+
+  p.x = 33.7; p.y = 30;                     // inside room_e2, x 33.4–34.0
+  g.frame(FRAME_MS, input);
+  ok('I1 a player can end up inside a wall', WALLS.some((w) => rectContains(w, p.x, p.y)));
+  const wedged = { x: p.x, y: p.y };
+  input._debugPress('KeyD');
+  for (let i = 0; i < 60; i++) g.frame(FRAME_MS, input);
+  input._debugRelease('KeyD');
+  ok('I2 and from in there no amount of walking moves them',
+    Math.hypot(p.x - wedged.x, p.y - wedged.y) < 0.01,
+    `moved ${Math.hypot(p.x - wedged.x, p.y - wedged.y).toFixed(3)} m`);
+
+  input._debugPress('KeyX'); g.frame(FRAME_MS, input); input._debugRelease('KeyX');
+  ok('I3 X frees them', !WALLS.some((w) => rectContains(w, p.x, p.y)),
+    `${p.x.toFixed(2)},${p.y.toFixed(2)}`);
+  input._debugPress('KeyD');
+  for (let i = 0; i < 30; i++) g.frame(FRAME_MS, input);
+  input._debugRelease('KeyD');
+  // Let the walk bleed off before sampling: the player decelerates over several frames,
+  // and a residual velocity would show up as "X moved me" in I5.
+  for (let i = 0; i < 40; i++) g.frame(FRAME_MS, input);
+  ok('I4 and they can walk again', Math.hypot(p.x - wedged.x, p.y - wedged.y) > 0.3);
+
+  // It is an escape hatch, not a movement ability: pressed when nothing is stuck it
+  // must do nothing at all, or it becomes a free sidestep.
+  g.frame(FRAME_MS, input);
+  const free = { x: p.x, y: p.y };
+  input._debugPress('KeyX'); g.frame(FRAME_MS, input); input._debugRelease('KeyX');
+  ok('I5 pressing X when nothing is stuck does nothing',
+    Math.abs(p.x - free.x) < 0.01 && Math.abs(p.y - free.y) < 0.01);
+
+  // The tractor half of §24.3, and the train with it.
+  const v = g.state.vehiclesById.tractor_1;
+  input._debugRelease('KeyX');
+  g.state.player.x = v.x; g.state.player.y = v.y;
+  g.frame(FRAME_MS, input);
+  input._debugPress('KeyF'); g.frame(FRAME_MS, input); input._debugRelease('KeyF');
+  eq('I6 aboard the tractor', g.state.player.drivingId, v.id);
+  v.x = 33.7; v.y = 30;
+  g.frame(FRAME_MS, input);
+  input._debugPress('KeyX'); g.frame(FRAME_MS, input); input._debugRelease('KeyX');
+  ok('I7 X frees a wedged tractor too', !WALLS.some((w) => rectContains(w, v.x, v.y)),
+    `${v.x.toFixed(2)},${v.y.toFixed(2)}`);
+  eq('I8 and stops it dead rather than firing it out', v.speed, 0);
+
+  /* §23.1 lists an "onboarding complete flag" among the three things localStorage is
+     for. Without it the seven-step rail restarts on every single shift, forever. */
+  const store = memoryStorage();
+  const a = new Game({ seed: 5, seedLabel: 't', storage: store });
+  a.startShift();
+  ok('I9 a first shift shows the rail', !!a.guideView || a.guide.enabled);
+  a.guide.index = 999;                       // as if the player worked through it
+  a.step(FRAME_MS, a.state.simTimeMs, null);
+  ok('I10 finishing it marks the guide complete', a.guide.complete);
+  ok('I11 and that is remembered', new SaveSystem(store).loadOnboarded());
+
+  const b = new Game({ seed: 5, seedLabel: 't', storage: store });
+  b.startShift();
+  eq('I12 so the next shift does not re-teach it', b.guide.enabled, false);
+  eq('I13 and shows no rail', b.guideView, null);
+
+  const fresh = new Game({ seed: 5, seedLabel: 't', storage: memoryStorage() });
+  fresh.startShift();
+  eq('I14 a player who has never played still gets it', fresh.guide.enabled, true);
+
+  /* §20.2 asks for a priority bag "bonus/penalty". Only the bonus existed, so a priority
+     bag you LOST cost exactly what any other lost bag cost. */
+  ok('I15 a priority miss carries its own penalty', CONFIG.score.priorityMissPenalty < 0);
+  const s = createScore();
+  const plain = { correct: 0, correctPriority: 0, misrouted: 0, missed: 2, priorityMissed: 0 };
+  const withPri = { correct: 0, correctPriority: 0, misrouted: 0, missed: 2, priorityMissed: 1 };
+  const f1 = { id: 'x', number: 'X', destinationCode: 'X', expectedCount: 2, outcome: plain };
+  const f2 = { id: 'y', number: 'Y', destinationCode: 'Y', expectedCount: 2, outcome: withPri };
+  const g1 = newGame(); g1.state.score = createScore();
+  scoreFlight(g1.state, f1);
+  const afterPlain = g1.state.score.points;
+  g1.state.score = createScore();
+  scoreFlight(g1.state, f2);
+  ok('I16 losing a priority bag costs more than losing an ordinary one',
+    g1.state.score.points < afterPlain,
+    `${g1.state.score.points} vs ${afterPlain}`);
+  void s;
+
+  /* §16.3: "colour must be reinforced by text AND ICONS". The board carried the words and
+     a bare colour swatch; the icon — the third channel drawn on every bag — was missing,
+     so a colourblind player matching a tag to a row had two channels on one side and one
+     on the other. */
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  const board = new FlightBoard(root);
+  const bg = newGame(); bg.startShift(); bg.skipMs(30000);
+  board.update(bg.state);
+  const chips = [...root.querySelectorAll('.b-chip')];
+  ok('I17 every board row carries an icon as well as a colour',
+    chips.length > 0 && chips.every((c) => c.textContent.trim().length > 0),
+    chips.map((c) => JSON.stringify(c.textContent)).join());
+  eq('I18 and the icons distinguish the flights',
+    new Set(chips.map((c) => c.textContent)).size, chips.length);
+  board.destroy(); root.remove();
 }
 
 /* ── Z. what a suite cannot close ────────────────────────────────────────── */
@@ -688,7 +807,7 @@ lines.push('--- Z. GDD §29 criteria that need people, not a test runner ---');
 (async () => {
   const sections = [
     ['A', sectionA], ['B', sectionB], ['C', sectionC], ['D', sectionD],
-    ['E', sectionE], ['F', sectionF], ['H', sectionH], ['G', sectionG], ['Z', sectionZ],
+    ['E', sectionE], ['F', sectionF], ['H', sectionH], ['I', sectionI], ['G', sectionG], ['Z', sectionZ],
   ];
   for (const [name, fn] of sections) {
     emit(`RUNNING section ${name}...`);

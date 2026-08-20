@@ -61,7 +61,7 @@ export class Hud {
           <button id="btnTitleSettings">Settings</button>
           <p class="hint"><kbd>WASD</kbd> move &middot; <kbd>E</kbd> grab, load, hitch &middot;
              <kbd>F</kbd> drive, placard &middot; <kbd>Space</kbd> throw &middot;
-             <kbd>Q</kbd> scan &middot; <kbd>Esc</kbd> pause</p>
+             <kbd>Q</kbd> scan &middot; <kbd>X</kbd> unstick &middot; <kbd>Esc</kbd> pause</p>
           <p class="scope" id="titleScope">Sort off the belt into the marked carts, haul
              them to the gate, and get them in the hold before it closes.
              <b>The aircraft leave on the clock whether you are ready or not</b>
@@ -106,17 +106,8 @@ export class Hud {
 
     this.el.total.textContent = GameClock.formatMs(this.game.state.shift.endTimeMs);
 
-    /* The shift the title card describes is DERIVED, never typed. It read "fifty bags,
-       eight minutes" for a whole milestone after the balance pass made it thirty-four and
-       eleven and a half — on the first screen anybody sees. Numbers a human retypes are
-       numbers that go stale, so this one reads the timetable. */
-    const flights = FLIGHT_DEFS.length;
-    const bags = FLIGHT_DEFS.reduce((n, f) => n + f.bagCount, 0);
-    const mins = GameClock.formatMs(this.game.state.shift.endTimeMs);
-    const scope = $('titleScope');
-    if (scope) {
-      scope.innerHTML = `<b>${flights} flights, ${bags} bags, ${mins}.</b> ` + scope.innerHTML;
-    }
+    this.el.scope = $('titleScope');
+    this.el.scopeTail = this.el.scope ? this.el.scope.innerHTML : '';
   }
 
   /** The single funnel: which screen is up is a function of mode, nothing else. */
@@ -147,6 +138,25 @@ export class Hud {
 
     const total = GameClock.formatMs(state.shift.endTimeMs);
     if (total !== this._lastTotal) { this.el.total.textContent = total; this._lastTotal = total; }
+
+    /* The shift the title card describes is DERIVED, never typed. It read "fifty bags,
+       eight minutes" for a whole milestone after the balance pass made it thirty-four and
+       eleven and a half — on the first screen anybody sees.
+
+       Recomputed HERE rather than once in the constructor, because the schedule-pressure
+       assist changes both numbers and can be changed from the title card itself: a value
+       snapshotted at boot disagreed with the shift clock a few pixels away. Diffed like
+       every other panel, and read off the live timetable rather than FLIGHT_DEFS, which
+       is the authored shift and not necessarily the one about to be played. */
+    const scopeKey = `${Object.keys(state.flightsById).length}|${state.shift.bagSchedule.length}|${total}`;
+    if (this.el.scope && scopeKey !== this._lastScope) {
+      this._lastScope = scopeKey;
+      const nf = Object.keys(state.flightsById).length || FLIGHT_DEFS.length;
+      const nb = state.shift.bagSchedule.length ||
+                 FLIGHT_DEFS.reduce((n, f) => n + f.bagCount, 0);
+      this.el.scope.innerHTML =
+        `<b>${nf} flights, ${nb} bags, ${total}.</b> ` + this.el.scopeTail;
+    }
 
     /* Running score. GDD §11.1: keep the HUD operational and do NOT turn the screen
        into an arcade combo counter, so this is one small figure that moves only when a

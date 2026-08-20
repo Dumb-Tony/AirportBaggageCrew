@@ -224,7 +224,17 @@ export class Game {
   /** Restart straight into play, skipping the title screen. */
   startShift(seed = this.seed) {
     this.reset(seed, this.seedLabel);
-    resetGuide(this.guide, !!this.settings.guide);
+    /*
+     * GDD §23.1 lists an "onboarding complete flag" among the three things localStorage is
+     * for. Without it `resetGuide` zeroed the runtime flag at every start, so a player who
+     * had already worked a whole shift was walked through the seven-step rail again on the
+     * next one — and on every one after that.
+     *
+     * The SETTING still wins in both directions: turning the guide on brings it back for
+     * anybody who wants it, which is what somebody coming back after a month will do.
+     */
+    const seenItAll = this.save.loadOnboarded();
+    resetGuide(this.guide, !!this.settings.guide && !seenItAll);
     this.guideView = null;
     this.setMode(MODES.PLAYING);
     return this;
@@ -277,9 +287,16 @@ export class Game {
     /* A PAUSED frame runs zero steps, so nothing drained the edge buffer and every key
        tapped behind the pause card fired the instant you resumed. Tap F then E while
        paused and you got out of the tractor AND grabbed something on the first step back.
-       Draining here keeps "edges align to simulation steps" true for every running frame
-       and makes a paused keypress mean nothing, which is what a paused game promises. */
-    if (input && steps === 0) input.endStep();
+
+       KEYED ON `paused`, NOT ON `steps === 0`. A RUNNING frame also banks zero steps
+       whenever the accumulator has not yet reached one — which on a 120 Hz display is
+       every other frame, and at 144 Hz is most of them. Draining there discarded about
+       half of every E, F, Q and X press, and ONLY the edge verbs: movement and throttle
+       read `isDown` and were untouched. That would have presented as "grab and hitch work
+       about half the time", which is close to the worst shape a bug report can take. No
+       suite could have caught it either — every one of them drives frames at exactly
+       1000/60, which always banks exactly one step. */
+    if (input && this.clock.paused) input.endStep();
     return steps;
   }
 
@@ -328,8 +345,11 @@ export class Game {
 
     // The guide advances on SIMULATION time, so its stall timer freezes with a pause
     // rather than deciding you are stuck while the game is stopped.
+    const wasComplete = this.guide.complete;
     this.guideView = stepGuide(this.guide, this.state);
     this.state.guide = this.guideView;
+    // Finishing the rail is remembered, so the next shift starts without it.
+    if (this.guide.complete && !wasComplete) this.save.setOnboarded();
 
     if (simTimeMs >= this.state.shift.endTimeMs) this.endShift(simTimeMs);
   }
@@ -404,6 +424,13 @@ export class Game {
         id: v.id, x: round4(v.x), y: round4(v.y), rot: round4(v.rot),
         speed: round4(v.speed), driver: v.driverId,
         train: trainOf(this.state, v), odo: round4(v.odometerM),
+      })),
+      // Aircraft are part of the contract too. Without them a restart could leave one
+      // mid-taxi or with its door part-open and every determinism assertion would still
+      // pass, because they all compare this object.
+      aircraft: Object.values(this.state.aircraftById).map((a) => ({
+        id: a.id, x: round4(a.x), y: round4(a.y),
+        present: a.present, holdOpen: a.holdOpen, door: round4(a.door01),
       })),
       flights: Object.values(this.state.flightsById).map((f) => ({
         id: f.id, state: f.state, aboard: f.loadedBagIds.length,

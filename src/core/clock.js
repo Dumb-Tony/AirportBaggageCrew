@@ -85,7 +85,11 @@ export class GameClock {
       steps += this.advance(chunk, onStep);
       left -= chunk;
     }
-    this.paused = wasPaused;
+    // `wasPaused AND still not paused`: a skip that runs THROUGH the end of the shift
+    // pauses the clock from inside a step callback, and blindly restoring the old flag
+    // un-paused it again — leaving `clock.paused` false while the mode says `report`, which
+    // is the one thing the pause design promises can never happen.
+    this.paused = wasPaused || this.paused;
     return steps;
   }
 

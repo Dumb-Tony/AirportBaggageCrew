@@ -29,6 +29,10 @@ import { holdContains, aircraftHoldZone } from '../entities/aircraft.js';
 
 const FLIGHT_IDS = FLIGHT_DEFS.map((f) => f.id);
 
+/* How hard targeting favours what you are facing. `aimBiasDeg` is the half-angle at which
+ * a bag is penalised by roughly its own distance again; 90 degrees maps to 1.0. */
+const AIM_BIAS = Math.max(0, Math.min(2, CONFIG.interaction.aimBiasDeg / 90));
+
 /** Bags you can reach out and take: loose, riding the belt, or sitting in a cart. */
 const isTargetable = (bag) =>
   bag.location.type === 'floor' ||
@@ -54,9 +58,13 @@ export function findTarget(state, grid) {
     const d = Math.hypot(dx, dy);
     if (d > reach + bag.radiusM) continue;
 
-    // cos of the angle between the aim and the bag; 1 is dead ahead, -1 is behind
+    // cos of the angle between the aim and the bag; 1 is dead ahead, -1 is behind.
+    // The strength of the bias comes from CONFIG: it was hardcoded to 0.9 here while
+    // `interaction.aimBiasDeg` sat in config.js being read by nothing, which is exactly
+    // the kind of dead tuning knob GDD §31.1.15 exists to prevent — and precisely the
+    // sort of thing a balance pass turns and then wonders why nothing changed.
     const cos = d < 1e-6 ? 1 : (dx * p.aimX + dy * p.aimY) / d;
-    const score = d * (1 + (1 - cos) * 0.9);
+    const score = d * (1 + (1 - cos) * AIM_BIAS);
     if (score < bestScore) { bestScore = score; best = id; }
   }
   return best;
@@ -76,9 +84,9 @@ export function findTarget(state, grid) {
  * load (GDD §31.1.8): with no matching cart in reach the nearest still wins, and E still
  * puts the bag wherever you are standing.
  */
-export function findCart(state) {
+export function findCart(state, forLoad = true) {
   const p = state.player;
-  const held = p.carryingBagId ? state.bagsById[p.carryingBagId] : null;
+  const held = forLoad && p.carryingBagId ? state.bagsById[p.carryingBagId] : null;
   let best = null, bestD = Infinity;
   let match = null, matchD = Infinity;
 
@@ -142,6 +150,11 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
   }
   if (!input) return;
 
+  /* ── X: get unstuck (GDD §24.3) ──────────────────────────────── */
+  // Checked before every other verb, because the state it exists for is the one where
+  // nothing else works.
+  if (input.wasPressed('recover')) recoverStuck(state, bus, simTimeMs);
+
   /* ── F: in, out, or set a placard ─────────────────────────────────────── */
   if (input.wasPressed('interact')) {
     if (driving) {
@@ -149,7 +162,19 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
     } else {
       const veh = findVehicle(state);
       if (veh) enterVehicle(state, veh, bus, simTimeMs);
-      else if (cart) setPlacard(state, cart, nextPlacard(cart.placardFlightId, FLIGHT_IDS), bus, simTimeMs);
+      else {
+        /* PLAIN NEAREST, not the load-intent cart. Re-placarding is about the cart you
+           are standing at; the "matching placard wins" rule answers a different question
+           ("where does this bag go?"). Sharing one answer between them meant that holding
+           an ATL bag beside a blank cart and an ATL cart, F relabelled the ATL one —
+           taking the only correctly labelled cart off its flight, silently, while you
+           were standing at the other one. */
+        const placardCart = findCart(state, false);
+        if (placardCart) {
+          setPlacard(state, placardCart,
+            nextPlacard(placardCart.placardFlightId, FLIGHT_IDS), bus, simTimeMs);
+        }
+      }
     }
   }
 
@@ -236,6 +261,45 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
     const id = p.carryingBagId || p.targetBagId;
     if (id) scanBag(state, state.bagsById[id], bus, simTimeMs);
   }
+}
+
+/**
+ * X — get unstuck. GDD §24.3: "provide a recover/stuck action for tractor and player".
+ *
+ * It is a LOCAL unstick, not a teleport home. `moveWithWalls` only commits a move whose
+ * destination is clear and never updates the position while blocked, so anything that
+ * ends up inside geometry can never walk out of it — and from a player's side that reads
+ * as the game having frozen rather than as a bug with a workaround.
+ *
+ * Deliberately does nothing when you are not stuck, so it cannot be mashed as a free
+ * sidestep, and it never moves you toward where you were going: the drive to the gate is
+ * the game, and an escape hatch that shortened it would be a movement ability.
+ */
+export function recoverStuck(state, bus = null, simTimeMs = 0) {
+  const p = state.player;
+  const moved = [];
+
+  if (p.drivingId) {
+    const v = state.vehiclesById[p.drivingId];
+    if (v && pushOutOfWalls(v, v.radiusM)) {
+      v.speed = 0; v.yawRate = 0; v.vx = 0; v.vy = 0;
+      moved.push(v.id);
+    }
+    // The train follows the tractor, so free every cart on it too — a jack-knifed cart
+    // wedged in the doorway pins the whole thing just as effectively as the tractor does.
+    for (const cart of Object.values(state.cartsById)) {
+      if (!cart.hitchedToId) continue;
+      if (pushOutOfWalls(cart, Math.max(CONFIG.cart.lengthM, CONFIG.cart.widthM) * 0.5)) {
+        moved.push(cart.id);
+      }
+    }
+  } else if (pushOutOfWalls(p, p.radiusM)) {
+    p.vx = 0; p.vy = 0;
+    moved.push(p.id);
+  }
+
+  if (moved.length && bus) bus.emit(EVENTS.RECOVERED, { ids: moved }, simTimeMs);
+  return moved.length;
 }
 
 /* ── vehicles ────────────────────────────────────────────────────────────── */

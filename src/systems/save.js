@@ -14,6 +14,10 @@
 
 export const BEST_KEY = 'airport-baggage-crew.best.v1';
 export const SETTINGS_KEY = 'airport-baggage-crew.settings.v1';
+// GDD §23.1 names three things localStorage is for, and this was the missing one. Without
+// it a player who has already worked a whole shift is walked through the seven-step rail
+// again on the next one, because `resetGuide` zeroes the runtime flag at every start.
+export const ONBOARDED_KEY = 'airport-baggage-crew.onboarded.v1';
 export const SCHEMA_VERSION = 1;
 
 export class SaveSystem {
@@ -64,6 +68,12 @@ export class SaveSystem {
   }
 
   clearBest() { this._remove(BEST_KEY); }
+
+  /* ── onboarding (GDD §23.1) ──────────────────────────────────── */
+
+  loadOnboarded() { return this._get(ONBOARDED_KEY) === '1'; }
+  setOnboarded()  { this._set(ONBOARDED_KEY, '1'); }
+  clearOnboarded(){ this._remove(ONBOARDED_KEY); }
 
   /* ── settings ─────────────────────────────────────────────────────────── */
 

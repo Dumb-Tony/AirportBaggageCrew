@@ -18,17 +18,32 @@ import { GameClock } from '../core/clock.js';
 import { msToNext } from '../systems/flightSchedule.js';
 
 /** GDD §16.3, plus the label the row prints next to it. */
+/* GDD §16.3: "colour must be reinforced by TEXT AND ICONS". The row already carried the
+ * words; the third channel — the same icon drawn on every bag in the world — was the one
+ * missing, so a colourblind player matching a board row to a tag had two channels on the
+ * bag and one on the board. */
+const ICON = { triangle: '▲', square: '■', circle: '●' };
+
+/*
+ * The four rungs GDD §16.3 asks for, in its own words: "green: loading with adequate
+ * time; amber: approaching final bag call; red/pulsing: final bag call/hold closing;
+ * gray: departed."
+ *
+ * The ladder used to sit one state late — final bag call, the LAST moment you can still
+ * act, read amber, and red arrived only once the hold had shut and there was nothing to
+ * be done. Alarm belongs on the actionable state.
+ *
+ * The amber rung is not a flight state at all but a state plus a clock: LOADING with the
+ * countdown inside `urgentMs`. That is what "approaching final bag call" means, and it is
+ * why the class is chosen per row below rather than looked up here.
+ */
 const STATUS = {
   SCHEDULED:      { cls: 'st-scheduled', text: 'SCHEDULED' },
   BAG_ACCEPTANCE: { cls: 'st-accept',    text: 'ACCEPTING BAGS' },
   LOADING:        { cls: 'st-loading',   text: 'LOADING' },
-  // RED at final bag call, not at hold closing. GDD §16.3 puts "red/pulsing" on "final
-  // bag call/hold closing" together, and the ladder was shifted a state late: the last
-  // moment you can still act read amber, and red arrived only once the hold had shut and
-  // there was nothing left to do about it. Alarm belongs on the actionable state.
   FINAL_BAG_CALL: { cls: 'st-closing',   text: 'FINAL BAG CALL' },
-  HOLD_CLOSING:   { cls: 'st-departed',  text: 'HOLD CLOSED' },
-  PUSHBACK:       { cls: 'st-closing',   text: 'PUSHING BACK' },
+  HOLD_CLOSING:   { cls: 'st-closing',   text: 'HOLD CLOSED' },
+  PUSHBACK:       { cls: 'st-departed',  text: 'PUSHING BACK' },
   DEPARTED:       { cls: 'st-departed',  text: 'DEPARTED' },
 };
 
@@ -70,6 +85,10 @@ export class FlightBoard {
       const gate = f.gateId.replace('gate_', '');
       const urgent = left <= CONFIG.flight.urgentMs &&
                      (f.state === 'FINAL_BAG_CALL' || f.state === 'LOADING');
+      // "Approaching final bag call" is the amber rung: still loading, but the clock has
+      // run down. Without it the board jumps green straight to red and the warning the
+      // player is supposed to act on never appears.
+      const cls = (f.state === 'LOADING' && urgent) ? 'st-final' : s.cls;
       const aboard = f.loadedBagIds.length;
 
       const tail = f.evaluated
@@ -78,8 +97,8 @@ export class FlightBoard {
         : `<span class="b-count">${aboard}<span class="b-of">/${f.expectedCount}</span></span>` +
           `<span class="b-clock${urgent ? ' urgent' : ''}">${GameClock.formatMs(left)}</span>`;
 
-      return `<div class="b-row ${s.cls}${urgent ? ' pulse' : ''}">
-        <span class="b-chip" style="background:${f.tag.color}"></span>
+      return `<div class="b-row ${cls}${urgent ? ' pulse' : ''}">
+        <span class="b-chip" style="background:${f.tag.color}">${ICON[f.tag.icon] || ''}</span>
         <span class="b-num">${f.number}</span>
         <span class="b-dest">${f.destinationCode}</span>
         <span class="b-gate">G${gate}</span>

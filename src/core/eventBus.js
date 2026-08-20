@@ -39,6 +39,7 @@ export const EVENTS = Object.freeze({
   BAG_MISROUTED:        'BAG_MISROUTED',
   BAG_MISSED:           'BAG_MISSED',
   SCORE_CHANGED:        'SCORE_CHANGED',
+  RECOVERED:            'RECOVERED',
 });
 
 export class EventBus {

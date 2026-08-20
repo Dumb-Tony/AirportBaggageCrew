@@ -125,7 +125,10 @@ export function absorbIntoContainers(state, simTimeMs, bus) {
 
     for (const cart of carts) {
       if (!cartContains(cart, bag.x, bag.y)) continue;
-      if (!cartRoomFor(cart, state, bag).ok) break;    // full: it stays on the floor
+      // `continue`, not `break`: carts can overlap, and a bag lying where two of them
+      // claim the same square metre must still be offered to the second when the first is
+      // full — otherwise it sits on the floor between two carts, one of which has room.
+      if (!cartRoomFor(cart, state, bag).ok) continue;
       bag.vx = 0; bag.vy = 0;
       moveBag(state, bag, { type: 'cart', id: cart.id }, bus, simTimeMs);
       n++;

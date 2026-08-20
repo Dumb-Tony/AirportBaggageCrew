@@ -18,6 +18,7 @@ export const DEFAULT_BINDINGS = Object.freeze({
   grab:      ['KeyE'],
   scan:      ['KeyQ'],
   interact:  ['KeyF'],
+  recover:   ['KeyX'],
   throw:     ['Space'],
   brake:     ['Space'],
   pause:     ['Escape'],

@@ -195,7 +195,14 @@ export function evaluateFlight(state, flight, bus, simTimeMs) {
     if (bag.lifecycle === 'loaded') continue;
     // Already flown, on somebody else's aircraft. It missed this flight too, and the
     // count above says so, but 'misrouted' is the more specific truth about the bag.
-    if (bag.lifecycle === 'misrouted') continue;
+    // A misrouted bag IS a bag this flight did not get, so it counts toward the priority
+    // tally. Skipping it made GDD §11.2's "priority bags missed" a function of the
+    // timetable rather than of the player: a priority bag left in the wrong hold counted
+    // if the owed flight departed first and did not if the receiving one did.
+    if (bag.lifecycle === 'misrouted') {
+      if (bag.priority) priorityMissed++;
+      continue;
+    }
     bag.lifecycle = 'missed';
     if (bag.priority) priorityMissed++;
     if (bus) bus.emit(EVENTS.BAG_MISSED, { bagId, flightId: flight.id }, simTimeMs);
@@ -203,11 +210,9 @@ export function evaluateFlight(state, flight, bus, simTimeMs) {
 
   /*
    * `missed` is a SUBTRACTION over the timetable; `priorityMissed` is a COUNT from the
-   * ownership walk. They describe the same set of bags, so the specific one cannot exceed
-   * the total — and without this they can disagree, because the walk sees every bag the
-   * flight owns while the subtraction only ever sees `expectedCount`. A flight reported
-   * as PERFECT could carry a priority miss, which is a contradiction in terms and, once
-   * the priority penalty existed, cost points on a flawless flight.
+   * ownership walk. In normal play they cannot disagree — a flight owns exactly the bags
+   * on its timetable — but a test that manufactures extra owned bags can drive the walk
+   * past `expectedCount`, and a flight reported PERFECT must never carry a priority miss.
    */
   priorityMissed = Math.min(priorityMissed, missed);
 
