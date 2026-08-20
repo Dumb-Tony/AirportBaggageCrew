@@ -23,7 +23,7 @@ import {
   GUIDE_STEPS, STALL_MS, stepGuide, resetGuide,
 } from '../src/systems/onboarding.js';
 import { DEFAULT_SETTINGS, ASSIST_LEVELS, SettingsPanel } from '../src/ui/settings.js';
-import { Sfx, BUSES } from '../src/systems/audio.js';
+import { Sfx, BUSES, CUES, BEDS, mixFor, atten } from '../src/systems/audio.js';
 import { EVENTS } from '../src/core/eventBus.js';
 import { Hud } from '../src/ui/hud.js';
 
@@ -353,6 +353,115 @@ function sectionE() {
   ok('E11 audio subscribes rather than polls', !!sfx2._bus);
 }
 
+/* ── H. the mix and the cue table, asserted without a sound card ─────────── */
+/* This is the half that section E cannot reach. E proves audio has no AUTHORITY; H
+ * proves it is CORRECT — that the engine gets louder when you accelerate and that every
+ * cue names an event the game really emits — on a headless box with no output device.
+ * The seam that makes it possible is `mixFor` being pure and `CUES` being data. */
+function sectionH() {
+  // Every row must name a real event, or it is a cue that can never fire.
+  for (const name of Object.keys(CUES)) {
+    ok(`H1 CUES.${name} names a real event`, !!EVENTS[name]);
+  }
+  note(`      ${Object.keys(CUES).length} cue rows over ${Object.keys(EVENTS).length} events`);
+
+  // Every recipe must be playable: a bus that exists, and well-formed parts. And every
+  // row must survive a BARE event — a cue that throws on a field it expected would take
+  // the simulation step down with it, since these run inside bus.emit.
+  const recipes = [];
+  const probe = new Sfx();
+  for (const [name, cue] of Object.entries(CUES)) {
+    ok(`H2 ${name} names a real bus`, BUSES.includes(cue.bus), cue.bus);
+    let threw = null;
+    try { probe.play(name, {}); } catch (err) { threw = String(err); }
+    ok(`H3 ${name} survives an event with no fields`, !threw, threw);
+    if (cue.variants) for (const v of Object.values(cue.variants)) recipes.push([name, v]);
+    else recipes.push([name, cue]);
+  }
+  ok('H4 every recipe is a list of parts',
+    recipes.every(([, r]) => Array.isArray(r.parts)));
+  const badPart = recipes.flatMap(([n, r]) => r.parts.map((p) => [n, p]))
+    .find(([, p]) => !(p[0] === 't' && p.length >= 5) && !(p[0] === 'n' && p.length === 5));
+  ok('H5 every part is a well-formed tone or noise', !badPart, JSON.stringify(badPart));
+
+  // An unlisted event must be silent, not fatal — the whole point of a table.
+  const sfx = new Sfx();
+  eq('H6 an unlisted event is silent', sfx.play('NOT_AN_EVENT', {}), null);
+  eq('H7 an unrecognised variant falls back rather than throwing',
+    sfx.play('BAG_SCANNED', { verdict: 'nonsense' }), CUES.BAG_SCANNED.variants._);
+  ok('H8 the scanner picks a different recipe per verdict',
+    sfx.play('BAG_SCANNED', { verdict: 'correct' }) !== sfx.play('BAG_SCANNED', { verdict: 'wrong' }));
+
+  // GDD §5.3: the flight cues escalate. Final call must be more insistent than loading.
+  const loading = CUES.FLIGHT_STATE_CHANGED.variants.LOADING.parts;
+  const final = CUES.FLIGHT_STATE_CHANGED.variants.FINAL_BAG_CALL.parts;
+  ok('H9 final call has more partials than loading', final.length > loading.length);
+  ok('H10 and is louder', final[0][4] > loading[0][4], `${final[0][4]} vs ${loading[0][4]}`);
+
+  /* ── mixFor: pure, and right ── */
+  const g = newGame(505);
+  g.startShift();
+  runMs(g, 2000);
+
+  const before = JSON.stringify(g.describe());
+  for (let i = 0; i < 50; i++) mixFor(g.state);
+  eq('H11 mixFor mutates nothing', JSON.stringify(g.describe()), before);
+  eq('H12 mixFor is a function of state alone',
+    JSON.stringify(mixFor(g.state)), JSON.stringify(mixFor(g.state)));
+
+  const playing = mixFor(g.state);
+  ok('H13 the belt hums while the game runs', playing.belt > 0, JSON.stringify(playing));
+  ok('H14 so does the apron', playing.ramp > 0);
+  eq('H15 the engine is silent with nobody driving', playing.engine.gain, 0);
+
+  g.togglePause();
+  const paused = mixFor(g.state);
+  eq('H16 a paused airport is silent', paused.belt, 0);
+  eq('H17 including the apron', paused.ramp, 0);
+  g.togglePause();
+
+  // The engine is the one bed that carries information, so it has to track speed.
+  const v = Object.values(g.state.vehiclesById)[0];
+  v.driverId = 'player_1';
+  const at = (s) => { v.speed = s; return mixFor(g.state); };
+  const slow = at(1), mid = at(4), fast = at(7);
+  ok('H18 the engine is audible once you are driving', slow.engine.gain > 0);
+  ok('H19 and gets louder with speed',
+    slow.engine.gain < mid.engine.gain && mid.engine.gain < fast.engine.gain,
+    `${slow.engine.gain} < ${mid.engine.gain} < ${fast.engine.gain}`);
+  ok('H20 and rises in pitch with it',
+    slow.engine.pitch < mid.engine.pitch && mid.engine.pitch < fast.engine.pitch);
+  ok('H21 reverse is as loud as forward', at(-4).engine.gain === mid.engine.gain);
+  eq('H22 the engine stops when the tractor does', at(0).engine.gain, 0);
+  note(`      engine bed: ${slow.engine.gain.toFixed(4)} at 1 m/s, ` +
+       `${fast.engine.gain.toFixed(4)} at 7 m/s (pitch ` +
+       `${slow.engine.pitch.toFixed(0)} Hz to ${fast.engine.pitch.toFixed(0)} Hz)`);
+  v.driverId = null; v.speed = 0;
+
+  ok('H23 every bed the mix names actually exists',
+    ['belt', 'ramp', 'engine'].every((b) => !!BEDS[b]));
+
+  /* ── attenuation ── */
+  eq('H24 a sound at the camera is at full volume', atten(0, 50), 1);
+  eq('H25 a sound out of range is silent', atten(80, 50), 0);
+  ok('H26 falloff is squared, not linear', atten(25, 50) < 0.5 - 0.2,
+    `${atten(25, 50)}`);
+  ok('H27 nearer is always louder', atten(10, 50) > atten(20, 50));
+
+  // Panning: the camera decides where a sound sits, and a broken camera must not throw.
+  const s2 = new Sfx();
+  s2.attach(newGame().bus, camStub);
+  const left = s2._pos(0, 15), right = s2._pos(46, 15);
+  ok('H28 a sound to the west pans left', left.pan < 0, `${left.pan}`);
+  ok('H29 a sound to the east pans right', right.pan > 0, `${right.pan}`);
+  const s3 = new Sfx();
+  s3.attach(newGame().bus, () => null);
+  eq('H30 no camera means centred and unattenuated', JSON.stringify(s3._pos(9, 9)),
+    JSON.stringify({ pan: 0, att: 1 }));
+  eq('H31 a malformed camera does the same rather than throwing',
+    JSON.stringify(new Sfx()._pos(9, 9)), JSON.stringify({ pan: 0, att: 1 }));
+}
+
 /* ── F. the whole thing still boots and runs ─────────────────────────────── */
 async function sectionF() {
   await yieldToLoop();
@@ -434,8 +543,8 @@ async function sectionG() {
 /* ── run ─────────────────────────────────────────────────────────────────── */
 (async () => {
   const sections = [
-    ['A', sectionA], ['B', sectionB], ['C', sectionC],
-    ['D', sectionD], ['E', sectionE], ['F', sectionF], ['G', sectionG],
+    ['A', sectionA], ['B', sectionB], ['C', sectionC], ['D', sectionD],
+    ['E', sectionE], ['H', sectionH], ['F', sectionF], ['G', sectionG],
   ];
   for (const [name, fn] of sections) {
     emit(`RUNNING section ${name}...`);

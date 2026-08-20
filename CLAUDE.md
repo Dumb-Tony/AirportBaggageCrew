@@ -55,7 +55,7 @@ Dev-wide catalog of what already exists and where to copy it from.
   text scale, guide toggle, and a schedule-pressure assist). Measured: a 200 s shift with
   live audio attached and one with none produce byte-identical `describe()` snapshots;
   600 live frames with audio wired in cost 0.020 ms each; the assist takes the shift from
-  8:07 to 12:49 without touching a verb. **100 assertions, 700 total** +
+  8:07 to 12:49 without touching a verb. **179 assertions, 779 total** +
   `docs/m5-first-minute.png`, `docs/m5-settings.png`.
 
 ## The rules that must not bend (GDD §31.1)
@@ -172,15 +172,29 @@ Dev-wide catalog of what already exists and where to copy it from.
   visual equivalent, so mute is a preference and not a handicap. Never write a toast whose
   meaning is in its tone, and never add a cue that is only audible.
 - **Audio is the ONE subsystem allowed to touch real time**, because a WebAudio schedule
-  is measured in `AudioContext` seconds. It pays for that with three rules, and m5
-  section E enforces all three: it is inert until a user gesture arms it, it READS
-  simulation state and never writes to it, and every cue it makes is also visible. The
-  test that matters runs the same seeded shift twice — once with a live `Sfx` attached,
-  once with none — and demands the `describe()` snapshots match to the byte. If that ever
-  goes red, every other suite in the project becomes advisory.
+  is measured in `AudioContext` seconds. It pays for that with four rules: inert until a
+  user gesture arms it; READS simulation state and never writes to it; the decision is
+  separate from the plumbing; every cue is also visible. The test that matters (m5 E) runs
+  the same seeded shift twice — once with a live `Sfx` attached, once with none — and
+  demands the `describe()` snapshots match to the byte. If that ever goes red, every other
+  suite in the project becomes advisory.
+- **`mixFor(state)` is PURE and `CUES` is DATA, and both must stay that way.** That seam
+  is the only reason the interesting half of audio is testable on a box with no sound
+  card — m5 section H asserts the engine bed rises with speed, a paused airport is silent,
+  final call out-shouts loading, and every cue row names a real event. Put a decision
+  inside an oscillator callback and section H can no longer see it. Structure copied from
+  `SmallTownEmergencyServices\src\audio\audio.js`; keep the names.
+- **A cue row for an event that does not exist is inert, and an unknown variant falls back
+  to `_`.** A new sound is a new row, never a new branch, and a missing row is silence
+  rather than a throw — these handlers run inside `bus.emit`, so a throw would take the
+  simulation step down with it. m5 H3 fires every row with a bare `{}` to prove it.
 - **Every audio subscription is gated on `armed` at the subscription site**, not inside
   `tone()`/`noise()`. Audio is unarmed for the whole title screen, and a shift emits
-  thousands of events; the panning arithmetic must not run for cues nobody can hear.
+  thousands of events; the table lookup and panning arithmetic must not run for cues
+  nobody can hear.
+- **Cue rate-limiting (`minGapMs`) runs on REAL audio time, never simulation time.** It
+  exists so nine bags landing together are one thump, and it must stay somewhere the
+  simulation can never observe — otherwise it becomes a game rule with a stopwatch.
 - **The onboarding rail has NO TRAINING PAUSES and must never gain any.** A tutorial that
   stopped the clock would teach a lie about the only thing the game is about (pillar 1,
   §31.1.7). It is advisory text over a completely live shift.
@@ -241,6 +255,13 @@ Dev-wide catalog of what already exists and where to copy it from.
   asserted every bag is still `active` after a full shift; M3 made departures classify
   them, so the assertion was describing a world that no longer exists. That is a test to
   rewrite, not code to revert — but check which it is before touching either.
+- ⚠ **CHECK `..\INDEX.md` BEFORE writing a system, not after.** M5's `audio.js` was
+  written from scratch and only then compared against Small Town Emergency Services,
+  which already had a better-shaped layer — `mixFor` as a pure function, `CUES` as a data
+  table. It had to be rewritten to that shape, and the rewrite is what made section H
+  possible at all. The catalog entry existed the whole time. This is exactly the waste
+  rule 3 exists to stop, and knowing the rule was not enough — the lookup has to happen
+  before the first line, not before the commit.
 - **Never assert a raw event COUNT either.** m5 E4 first demanded "more than 100 events
   in 60 s" and measured 13 — the same mistake as assuming when a seeded bag spawns, worn
   as a magnitude. Count the KINDS of event the test actually depends on, and assert those
@@ -370,7 +391,7 @@ second repo, no `dist/`. Pages takes ~30-60 s to rebuild.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (700 assertions), exit 0 = green
+tools\test.ps1              # all suites (779 assertions), exit 0 = green
 tools\test.ps1 -Only m5     # one suite
 
 # diagnostics (not suites — they measure, they don't gate):

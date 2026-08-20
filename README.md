@@ -13,7 +13,7 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Milestone 5 — onboarding and juice. 700 assertions green.**
+**Current state: Milestone 5 — onboarding and juice. 779 assertions green.**
 Three flights, fifty bags, eight minutes. Bags arrive on a conveyor, get sorted into
 marked carts, hauled to a gate behind a tractor, and loaded into an aircraft hold — and
 the aircraft leave on the clock whether you are ready or not. The shift ends with a
@@ -149,7 +149,7 @@ monetisation.
 | 2 | Transport — carts, hitching, the tractor | **done** — 140 assertions |
 | 3 | Sacred schedule — flight states, board, departures | **done** — 105 assertions |
 | 4 | Outcomes and pressure — scoring, report, replay | **done** — 113 assertions |
-| 5 | Onboarding and juice — audio, hints, accessibility | **done** — 100 assertions |
+| 5 | Onboarding and juice — audio, hints, accessibility | **done** — 179 assertions |
 | 6 | Balance and hardening | next |
 
 ## What the suites measure

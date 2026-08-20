@@ -2,7 +2,7 @@
 
 ## Milestone 5 — onboarding and juice — 2026-08-20
 
-**100 assertions, 700 total.** Exit criterion: *uncoached playtesters complete the core
+**179 assertions, 779 total.** Exit criterion: *uncoached playtesters complete the core
 loop.* The three things standing between a stranger and that loop were silence, no
 teaching, and no way to turn the pressure down. All three are now fixed.
 
@@ -10,10 +10,15 @@ teaching, and no way to turn the pressure down. All three are now fixed.
 visual-only. Now: bags thump off the belt and onto the floor, the scanner beeps and
 chirps or buzzes depending on the verdict, hitching clunks, the tractor engine pitches
 with its own speed, flight transitions chime and escalate, and hold closing lands as a
-low sawtooth. Three continuous beds — belt, ramp, engine — sit under it. `tone` and
-`toneP` are copied from `Chameleon\chameleon3d.html:2190`, keeping the names.
+low sawtooth. Three continuous beds — belt, ramp, engine — sit under it.
 
-Three rules hold it in place, and the suite enforces each:
+**Structure copied from `SmallTownEmergencyServices\src\audio\audio.js`** per
+`Dev\INDEX.md`, keeping the names `mixFor`, `CUES`, `atten`, `tone` and `toneP`. (That
+file took `tone`/`toneP` from `Chameleon\chameleon3d.html:2190`. The synth has now been
+written four times across this tree; this is the fourth adaptation, not a fifth
+invention — the first draft here *was* a fifth invention, and was replaced.)
+
+Four rules hold it in place, and the suite enforces each:
 
 - **Inert until armed.** No `AudioContext` exists until a real user gesture, and every
   subscription drops the event outright while unarmed — so the title screen costs nothing.
@@ -21,6 +26,13 @@ Three rules hold it in place, and the suite enforces each:
   200-second shift twice, once with a live `Sfx` attached and once with none, and demands
   the `describe()` snapshots match to the byte. They do. Arming, updating, muting and
   tearing the graph down all leave the simulation identical.
+- **The decision is separate from the plumbing.** `mixFor(state)` is a pure function from
+  world state to target loudnesses, and one-shots are a data table keyed by event name.
+  That seam is what lets section H assert the *interesting* half on a headless box with no
+  sound card: that the engine bed gets louder and higher as you accelerate, that a paused
+  airport is silent, that final call is more insistent than loading, and that every cue
+  row names an event the game really emits. Section E proves audio has no authority;
+  section H proves it is correct.
 - **Every cue has a visual equivalent.** Nothing in the game is audible-only, which is
   what makes the mute switch a preference rather than a handicap.
 
