@@ -683,7 +683,7 @@ lines.push('--- H. determinism and cost ---');
 
   /* an unattended shift must still be sound: nothing here is driven at all */
   const idle = newGame(777);
-  idle.skipMs(CONFIG.shift.durationMs);
+  idle.skipMs(idle.state.shift.endTimeMs + 2000);
   eq('H3 an unattended shift keeps containment sound', assertContainment(idle.state).length, 0);
   eq('H4 and the hitch chain sound', validateChain(idle.state).length, 0);
   const counts = countByLocation(idle.state);

@@ -103,6 +103,7 @@ const SEEDS = [12345, 777, 2468];
   const firstLoads = avgRows.map((r) => r.bot.firstLoadMs).filter((v) => v !== null);
   say(`time to first bag aboard   ${firstLoads.length ? secs(firstLoads.reduce((a, b) => a + b, 0) / firstLoads.length) : 'NEVER'}`);
   say(`cart trips to the gates    ${A((r) => r.bot.hauls).toFixed(1)}`);
+  say(`carts swapped on the hitch ${A((r) => r.bot.cartsDropped || 0).toFixed(1)}`);
   say(`bags picked up             ${A((r) => r.bot.bagsCarried).toFixed(0)}`);
   say(`  ...loaded into carts     ${A((r) => r.bot.cartLoads).toFixed(0)}`);
   say(`  ...loaded into holds     ${A((r) => r.bot.holdLoads).toFixed(0)}`);
@@ -137,6 +138,15 @@ const SEEDS = [12345, 777, 2468];
         `  job ${d.job} hitched=${d.hitched} train=${d.train} clear=${d.clearMs}`);
   }
   if (ends.length > 24) say(`  ...and ${ends.length - 24} more`);
+  say('');
+
+  /* ── where everything ended up, for a flight that took nothing ──────────── */
+  say('── END STATE (average skill, first seed) ───────────────────────────────');
+  const one = avgRows[0];
+  say('carts:  ' + one.carts.map((c) =>
+    `${c.id}[${(c.placard || 'blank').replace('flight_', '')} x${c.bags}${c.hitched ? ' towed' : ''}]`).join('  '));
+  say('bags:   ' + Object.entries(one.byLifecycle).sort()
+    .map(([k, v]) => `${k}=${v}`).join('  '));
   say('');
 
   /* ── the authored shift, for reference while tuning ─────────────────────── */

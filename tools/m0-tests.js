@@ -485,7 +485,10 @@ async function sectionH() {
     // the simulation should come to rest on the end time rather than run on.
     game.startShift();
     const shiftEnd = game.state.shift.endTimeMs;
-    drive(36000);
+    // Enough frames for the DERIVED shift, plus a margin. Driving a hardcoded 36,000
+    // steps was exactly ten minutes, and stopped 92 s short once M6 stretched the
+    // schedule to 11:32.
+    drive(Math.ceil(shiftEnd / STEP) + 600);
     near('H17 a whole shift runs to its end and stops there',
          game.state.simTimeMs, shiftEnd, STEP * 2);
     eq('H18 and the shift clock has run out', Math.round(game.shiftRemainingMs), 0);

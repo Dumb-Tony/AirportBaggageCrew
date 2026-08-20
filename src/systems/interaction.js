@@ -161,9 +161,18 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
       } else {
         releaseHeld(state, bus, simTimeMs);
       }
-    } else if (hold && hold.holdOpen && !p.targetBagId && manifestOf(state, hold).length) {
+    } else if (hold && hold.holdOpen && !p.targetBagId &&
+               !(cart && cart.bagIds.length) && manifestOf(state, hold).length) {
       // GDD §28.2: a bag taken back out of a hold before closure must stop counting as
       // loaded. Same top-of-the-pile rule as a cart.
+      //
+      // A LOADED CART IN REACH WINS. Balance pass (M6): the cart-to-hold shuttle was
+      // 8.9 s per bag, nearly all of it walking, because a player standing at their cart
+      // inside the hold volume pulled bags back OUT of the aircraft instead of taking
+      // the next one off the cart. That forced a five-metre round trip per bag and made
+      // the shift unfinishable. Parking the train alongside the door is now rewarded,
+      // which is the skill the layout was always asking for. Emptying a hold still
+      // works — step away from the cart, which is also the clearer intent.
       const manifest = manifestOf(state, hold);
       const bag = state.bagsById[manifest[manifest.length - 1]];
       if (bag) {

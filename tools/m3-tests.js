@@ -386,7 +386,7 @@ lines.push('--- F. THE EXIT CRITERION: a no-input shift completes deterministica
 {
   function fullShift(seed) {
     const g = newGame(seed);
-    g.skipMs(CONFIG.shift.durationMs);
+    g.skipMs(g.state.shift.endTimeMs + 2000);
     return g;
   }
 
@@ -403,7 +403,7 @@ lines.push('--- F. THE EXIT CRITERION: a no-input shift completes deterministica
      `${unclassified.length} of ${bags.length} still active`);
   const kinds = {};
   for (const b of bags) kinds[b.lifecycle] = (kinds[b.lifecycle] || 0) + 1;
-  note(`50-bag unattended shift ends: ${JSON.stringify(kinds)}`);
+  note(`unattended shift ends: ${JSON.stringify(kinds)}`);
 
   eq('F4 containment survived the whole shift', assertContainment(g.state).length, 0);
   eq('F5 as did the hitch chain', validateChain(g.state).length, 0);
@@ -430,34 +430,39 @@ lines.push('--- F. THE EXIT CRITERION: a no-input shift completes deterministica
      JSON.stringify(a.describe()) !== JSON.stringify(c.describe()));
 
   const r = fullShift(20260819);
-  r.startShift(); r.skipMs(CONFIG.shift.durationMs);
+  r.startShift(); r.skipMs(r.state.shift.endTimeMs + 2000);
   ok('F11 and a restart replays it exactly',
      JSON.stringify(r.describe()) === JSON.stringify(a.describe()));
 
   /* the shift must also survive being driven at a different frame rate */
   const slow = newGame(20260819);
-  for (let i = 0; i < 24000; i++) slow.frame(25, null);       // 40 fps, 10 minutes
+  // 40 fps for the whole DERIVED shift, not for a hardcoded ten minutes: the M6 balance
+  // pass pushed the schedule to 11:32 and this quietly stopped before SK307 departed,
+  // then compared it against a fast run that had.
+  const slowFrames = Math.ceil((slow.state.shift.endTimeMs + 2000) / 25);
+  for (let i = 0; i < slowFrames; i++) slow.frame(25, null);
   const fast = newGame(20260819);
-  fast.skipMs(CONFIG.shift.durationMs);
+  fast.skipMs(fast.state.shift.endTimeMs + 2000);
   eq('F12 the fixed step makes frame rate irrelevant to the outcome',
      JSON.stringify(slow.describe().flights), JSON.stringify(fast.describe().flights));
 
   /* cost */
   const perf = newGame(5);
   const t0 = performance.now();
-  perf.skipMs(CONFIG.shift.durationMs);
+  perf.skipMs(perf.state.shift.endTimeMs + 2000);
   const ms = performance.now() - t0;
   // What matters is the PER-STEP cost against the 16.67 ms frame budget, not the total:
   // a ten-minute shift is 36,000 steps, so even a very cheap step adds up to seconds
   // when run flat out. The first version of this asserted `ms < 3000` and passed by five
   // milliseconds — a threshold that tight is a flake, not a check.
-  const steps = CONFIG.shift.durationMs / CONFIG.sim.stepMs;
+  const shiftMs = perf.state.shift.endTimeMs;
+  const steps = shiftMs / CONFIG.sim.stepMs;
   const perStep = ms / steps;
   ok('F13 a step of the whole airport costs a fraction of a frame', perStep < 1.0,
      `${perStep.toFixed(3)} ms/step`);
-  note(`ten minutes of airport: ${perStep.toFixed(3)} ms per step ` +
+  note(`a whole shift of airport: ${perStep.toFixed(3)} ms per step ` +
        `(budget ${CONFIG.sim.stepMs.toFixed(2)} ms), ${ms.toFixed(0)} ms for the lot ` +
-       `= ${(600000 / ms).toFixed(0)}x real time`);
+       `= ${(shiftMs / ms).toFixed(0)}x real time`);
 }
 }
 
@@ -471,7 +476,8 @@ lines.push('--- G. a shift somebody actually worked ---');
   const st = g.state;
   let delivered = 0;
 
-  for (let tick = 0; tick < 600; tick++) {
+  const ticks = Math.ceil(st.shift.endTimeMs / 1000) + 2;
+  for (let tick = 0; tick < ticks; tick++) {
     g.skipMs(1000);
     for (const ac of Object.values(st.aircraftById)) {
       if (!ac.present || !ac.holdOpen) continue;
@@ -488,7 +494,7 @@ lines.push('--- G. a shift somebody actually worked ---');
         moved++; delivered++;
       }
     }
-    if (st.simTimeMs >= CONFIG.shift.durationMs) break;
+    if (st.simTimeMs >= st.shift.endTimeMs) break;
   }
 
   const flights = Object.values(st.flightsById);
@@ -552,7 +558,7 @@ async function sectionH() {
     Math.floor(renderer.canvas.width / 2), Math.floor(renderer.canvas.height / 2), 1, 1).data;
   ok('H10 the aircraft paints', (px[0] + px[1] + px[2]) > 60, `rgb(${px[0]},${px[1]},${px[2]})`);
 
-  game.skipMs(CONFIG.shift.durationMs);
+  game.skipMs(game.state.shift.endTimeMs + 2000);
   hud.update();
   ok('H11 by the end of the shift the board shows departures',
      /DEPARTED/.test(document.querySelector('.board').textContent));

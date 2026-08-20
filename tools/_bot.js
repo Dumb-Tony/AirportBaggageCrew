@@ -43,6 +43,10 @@ const ROOM_EAST = 34;
  *  the cart on bay 2, and `findCart` then handed the player its neighbour every time. */
 const SORT_SPOT = { x: 20, y: 15.2 };
 
+/** Minimum gap between two presses of the same verb key. About seven a second — brisk
+ *  for a person, and the difference between an honest measurement and a fantasy. */
+const VERB_GAP_MS = 145;
+
 export const SKILLS = Object.freeze({
   novice:  { reactionMs: 900, lookaheadMs: 0,      haulAt: 10, label: 'novice' },
   average: { reactionMs: 380, lookaheadMs: 45000,  haulAt: 8,  label: 'average' },
@@ -76,6 +80,7 @@ export class CrewBot {
     for (const k of ALL_MOVE) input._debugRelease(k);
 
     this.sinceDecisionMs += dtMs;
+    this._nowMs = st.simTimeMs;
     this.stats.phaseMs[this.phase] = (this.stats.phaseMs[this.phase] || 0) + dtMs;
 
     if (this._lastP) {
@@ -144,6 +149,13 @@ export class CrewBot {
     const st = g.state;
     const p = st.player;
 
+    // GET OUT FIRST. Everything below is on foot and steers with WASD; still in the cab,
+    // those same keys drive the tractor, and the bot spent the back half of one shift
+    // wiggling a loaded train in the north-west corner of the sort room while trying to
+    // "walk" to a bag twenty metres away. `_replan` and the return handoff can both land
+    // here mid-drive, so the guard belongs at the top rather than in either of them.
+    if (p.drivingId) { this._press(input, KEY.interact); return; }
+
     // A cart worth hauling? Either it is full, or its flight is close enough to hold
     // closing that leaving now is the last chance. Lookahead is the skill.
     //
@@ -183,9 +195,7 @@ export class CrewBot {
       // cart by walking somewhere the intended cart is the nearest.
       const inReach = p.targetCartId ? st.cartsById[p.targetCartId] : null;
       if (inReach && inReach.placardFlightId === bag.flightId && cartRoomFor(inReach, st, bag).ok) {
-        this._press(input, KEY.grab);
-        this.stats.cartLoads++;
-        this._carryMs = 0;
+        if (this._press(input, KEY.grab)) { this.stats.cartLoads++; this._carryMs = 0; }
         return;
       }
       // Standing where two carts overlap, stepping to the "far side" once is not always
@@ -212,11 +222,9 @@ export class CrewBot {
       // player would simply grab that one — holding out froze the first version of this
       // bot at the belt for minutes at a time.
       if (st.player.targetBagId) {
-        this._press(input, KEY.grab);
-        this.stats.bagsCarried++;
+        if (this._press(input, KEY.grab)) this.stats.bagsCarried++;
         if (this.sinceDecisionMs > this.skill.reactionMs) {
-          this._press(input, KEY.scan); this.stats.scans++;
-          this.sinceDecisionMs = 0;
+          if (this._press(input, KEY.scan)) { this.stats.scans++; this.sinceDecisionMs = 0; }
         }
       } else {
         /*
@@ -350,8 +358,12 @@ export class CrewBot {
     const v = this._tractor(st);
     if (!v) { this.phase = 'sort'; return; }
     if (st.player.drivingId) {
+      const v = this._tractor(st);
       const cart = st.cartsById[this.jobCartId];
-      this.phase = cart && cart.hitchedToId ? 'drive' : 'hitch';
+      // Straight to driving only when the train is exactly the cart we want; otherwise
+      // the hitch phase has to shed whatever else is on the drawbar first.
+      const clean = cart && cart.hitchedToId && v && v.nextCartId === cart.id;
+      this.phase = clean ? 'drive' : 'hitch';
       return;
     }
 
@@ -384,6 +396,27 @@ export class CrewBot {
     const cart = st.cartsById[this.jobCartId];
     if (!v) { this.phase = 'sort'; return; }
     if (!cart || cart.hitchedToId) { this._hitchMs = 0; this.phase = 'drive'; return; }
+
+    /*
+     * DROP THE DEAD CART FIRST. `hitchCandidate` measures from the TAIL of the train, not
+     * from the tractor, so a tractor already towing something can never bring a second
+     * cart into range without ramming the first. The bot spent the last four minutes of
+     * every shift trying, while cart_3 sat in the sort room with ten SK307 bags in it and
+     * that flight took zero — which is why SK307 read 0% while the other two read 85%.
+     *
+     * Dropped on the move, because a cart released while stationary is inside hitch range
+     * and gets picked straight back up.
+     */
+    if (v.nextCartId && v.nextCartId !== this.jobCartId) {
+      const clear = { x: SORT_SPOT.x - 5, y: SORT_SPOT.y + 8 };
+      const near = Math.hypot(v.x - clear.x, v.y - clear.y) < 7;
+      this._driveTo(g, input, clear.x, clear.y, 1.5);
+      if (near && Math.abs(v.speed) > 1) {
+        this._press(input, KEY.grab);
+        this.stats.cartsDropped = (this.stats.cartsDropped || 0) + 1;
+      }
+      return;
+    }
 
     // In range already? Take it. E while driving hitches whatever the game offers.
     const tow = { x: v.x - Math.cos(v.rot) * CONFIG.tractor.towOffsetM,
@@ -428,12 +461,20 @@ export class CrewBot {
     const ac = st.aircraftById[flight.aircraftId];
     const stand = standForGate(flight.gateId);
     if (!ac || !stand) { this.phase = 'return'; return; }
+    // The hold shut, or the aircraft is already rolling. Chasing it is how the bot drove
+    // a loaded train into the east perimeter fence at 116.9 m — the park target is
+    // derived from the aircraft's position, and the aircraft leaves.
+    if (!isHoldOpen(flight) || !ac.holdOpen || !ac.present) { this.phase = 'return'; return; }
 
-    // Park SHORT of the hold, on the open side, so the player can step between the cart
-    // and the hold volume without one stealing the other's E.
+    // PARK THE CART IN THE HOLD VOLUME. Coming in from the road the tractor faces east,
+    // so the cart trails about three metres west of it — put the tractor east of the
+    // door and the cart lands on the door. Standing at the cart then puts the crew both
+    // at the cart and inside the hold, which since the M6 interaction fix means E takes
+    // from the cart and E-with-a-bag loads the aircraft, with no walking between.
+    // Parking well is the skill; this is what the stand geometry was always asking for.
     const z = aircraftHoldZone(ac);
-    const target = { x: z.x - 3.4, y: z.y + 2.6 };
-    if (this._driveTo(g, input, target.x, target.y, 2.4)) {
+    const target = { x: z.x + 3.0, y: z.y + 1.1 };
+    if (this._driveTo(g, input, target.x, target.y, 1.6)) {
       this._press(input, KEY.interact);          // get out
       this.unloadStep = 'take';
       this.phase = 'unload';
@@ -459,26 +500,24 @@ export class CrewBot {
 
     const z = aircraftHoldZone(ac);
 
+    // One standing spot for both halves of the job: at the cart, inside the hold.
+    const spot = { x: cart.x, y: cart.y };
+    const there = this._walkTo(g, input, spot.x, spot.y, 1.0);
+
     if (p.carryingBagId) {
-      // Into the hold volume, then E. `holdContains` is the same test the game uses.
-      if (this._walkTo(g, input, z.x, z.y, 0.6) || holdContains(ac, p.x, p.y)) {
-        if (p.targetHoldId === ac.id && p.targetHoldOpen) {
-          this._press(input, KEY.grab);
+      if ((there || holdContains(ac, p.x, p.y)) && p.targetHoldId === ac.id && p.targetHoldOpen) {
+        if (this._press(input, KEY.grab)) {
           this.stats.holdLoads++;
           if (this.stats.firstLoadMs === null) this.stats.firstLoadMs = st.simTimeMs;
         }
+      } else if (there) {
+        // Parked badly: the cart is not in the hold volume after all. Walk it in.
+        this._walkTo(g, input, z.x, z.y, 0.6);
       }
       return;
     }
 
-    // Empty-handed. Stand at the cart and OUTSIDE the hold volume, or E will pull a bag
-    // back out of the aircraft instead of taking one off the cart.
-    const spot = this._cartSideSpot(ac, cart);
-    if (this._walkTo(g, input, spot.x, spot.y, 0.7)) {
-      if (!holdContains(ac, p.x, p.y) && p.targetCartId === cart.id) {
-        this._press(input, KEY.grab);
-      }
-    }
+    if (there && p.targetCartId === cart.id) this._press(input, KEY.grab);
   }
 
   /** A point beside `want` on the side away from `other`, so `findCart` picks `want`. */
@@ -486,16 +525,6 @@ export class CrewBot {
     const dx = want.x - other.x, dy = want.y - other.y;
     const d = Math.hypot(dx, dy) || 1;
     return { x: want.x + (dx / d) * 1.1, y: want.y + (dy / d) * 1.1 };
-  }
-
-  /** A standing spot beside the cart that is provably outside the hold volume. */
-  _cartSideSpot(ac, cart) {
-    const z = aircraftHoldZone(ac);
-    const away = cart.y >= z.y ? 1 : -1;
-    let y = cart.y + away * 1.15;
-    // Push out until the test the game runs agrees we are clear of the hold.
-    for (let i = 0; i < 8 && holdContains(ac, cart.x, y, 0.15); i++) y += away * 0.5;
-    return { x: cart.x, y };
   }
 
   /* ── phase: back to the sort room ─────────────────────────────────────── */
@@ -602,7 +631,26 @@ export class CrewBot {
     return { x: INSIDE_X, y: DOOR_Y };
   }
 
-  _press(input, code) { this._acted = true; input._debugPress(code); }
+  /**
+   * Press a verb key, at a HUMAN RATE.
+   *
+   * `wasPressed` is an edge per simulation step, so a bot that presses every frame acts
+   * sixty times a second: a ten-bag cart went into a hold in under a fifth of a second,
+   * and the unload leg vanished from the telemetry entirely. That is not a finding about
+   * the game, it is the instrument lying. A fast player manages six or seven presses a
+   * second; `VERB_GAP_MS` is that, and it applies to E, F and Q alike.
+   *
+   * Movement keys are held, not tapped, so they do not go through here.
+   */
+  _press(input, code) {
+    this._acted = true;
+    this._nextPressMs = this._nextPressMs || {};
+    const now = this._nowMs || 0;
+    if (this._nextPressMs[code] !== undefined && now < this._nextPressMs[code]) return false;
+    this._nextPressMs[code] = now + VERB_GAP_MS;
+    input._debugPress(code);
+    return true;
+  }
 
   /** Nothing to do: stand near the belt drop rather than freezing on the spot. */
   _loiter(g, input) {
@@ -642,5 +690,13 @@ export function playShift(g, input, skill = 'average', maxMs = 900000) {
       missed: f.outcome.missed, misrouted: f.outcome.misrouted,
     })),
     bot: bot.stats,
+    // Where everything ended up, for diagnosing a flight that took no bags at all.
+    carts: Object.values(g.state.cartsById).map((c) => ({
+      id: c.id, placard: c.placardFlightId, bags: c.bagIds.length, hitched: !!c.hitchedToId,
+    })),
+    byLifecycle: Object.values(g.state.bagsById).reduce((acc, b) => {
+      const k = `${b.flightId.replace('flight_', '')}:${b.lifecycle}`;
+      acc[k] = (acc[k] || 0) + 1; return acc;
+    }, {}),
   };
 }

@@ -22,9 +22,9 @@ export const FLIGHT_DEFS = [
     destinationCode: 'ATL', destinationName: 'Atlanta',
     gateId: 'gate_1', aircraftId: 'aircraft_1',
     tag: { color: '#e0574a', icon: 'triangle' },
-    bagCount: 16,
-    times: { bagAcceptanceMs: 5000, loadingMs: 20000, finalCallMs: 150000,
-             holdClosingMs: 175000, departureMs: 190000 },
+    bagCount: 11,
+    times: { bagAcceptanceMs: 5000, loadingMs: 30000, finalCallMs: 215000,
+             holdClosingMs: 250000, departureMs: 275000 },
     // §20.4 twist: tutorial-friendly first flow — an even trickle, no surprises.
     twist: { peak: 0.25, lateBags: 1, priorityCount: 1, heavyChance: 0.10, priorityLate: false },
   },
@@ -33,9 +33,9 @@ export const FLIGHT_DEFS = [
     destinationCode: 'ORD', destinationName: 'Chicago',
     gateId: 'gate_2', aircraftId: 'aircraft_2',
     tag: { color: '#4f8fd6', icon: 'square' },
-    bagCount: 16,
-    times: { bagAcceptanceMs: 60000, loadingMs: 80000, finalCallMs: 250000,
-             holdClosingMs: 275000, departureMs: 290000 },
+    bagCount: 11,
+    times: { bagAcceptanceMs: 85000, loadingMs: 115000, finalCallMs: 360000,
+             holdClosingMs: 395000, departureMs: 420000 },
     // §20.4 twist: several heavy bags.
     twist: { peak: 0.45, lateBags: 2, priorityCount: 2, heavyChance: 0.45, priorityLate: false },
   },
@@ -44,15 +44,15 @@ export const FLIGHT_DEFS = [
     destinationCode: 'MIA', destinationName: 'Miami',
     gateId: 'gate_1', aircraftId: 'aircraft_3',
     tag: { color: '#3fbf9b', icon: 'circle' },
-    bagCount: 18,
-    // Acceptance is 205 s, not 200: SK307 reuses gate 1 after AB221, whose aircraft is
-    // not clear of the stand until 195 s. GDD §20.4 forbids reusing a gate before the
+    bagCount: 12,
+    // Acceptance is late enough that SK307, which reuses gate 1, arrives after AB221's
+    // aircraft is clear of the stand. GDD §20.4 forbids reusing a gate before the
     // prior aircraft clears, and that has to include the taxi in and the pushback, not
     // just the scheduled departure time. `gateConflicts()` checks the widened window.
-    times: { bagAcceptanceMs: 205000, loadingMs: 220000, finalCallMs: 420000,
-             holdClosingMs: 450000, departureMs: 470000 },
+    times: { bagAcceptanceMs: 295000, loadingMs: 315000, finalCallMs: 600000,
+             holdClosingMs: 645000, departureMs: 675000 },
     // §20.4 twist: priority bags arrive late.
-    twist: { peak: 0.5, lateBags: 3, priorityCount: 4, heavyChance: 0.18, priorityLate: true },
+    twist: { peak: 0.5, lateBags: 3, priorityCount: 3, heavyChance: 0.18, priorityLate: true },
   },
 ];
 
