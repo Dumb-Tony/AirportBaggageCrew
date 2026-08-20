@@ -19,13 +19,18 @@ marked carts, hauled to a gate behind a tractor, and loaded into an aircraft hol
 the aircraft leave on the clock whether you are ready or not. The shift ends with a
 report telling you exactly what you managed, and a button to try again.
 
-![AB221 on final bag call at gate 1, hold open, a loaded cart alongside](docs/m5-oblique.png)
+![Loading the hold at gate 1, cargo door open, a loaded cart alongside](docs/vis-gate.png)
 
 The view is **oblique 2.5D** — still top-down Canvas 2D, but the ground is foreshortened
-and everything on it stands up, which GDD §19.1 permits ("top-down or 2.5D"). It replaced
-a straight-down view that read as a floorplan.
+and everything on it stands up, which GDD §19.1 permits ("top-down or 2.5D").
 
-![Sorting off the belt into the marked cart bays](docs/m5-oblique-sortroom.png)
+Everything is drawn procedurally: no fetched assets, no external requests. Surfaces are
+generated tiles (aggregate speckle, slab joints, worn wheel paths); the crew walk with a
+real stride and counter-swinging arms; wheels turn on distance travelled; the cargo door
+travels rather than snapping. **All of it derives from simulation values**, so two runs of
+a seed animate identically and pausing freezes the airport mid-stride.
+
+![Sorting off the belt into the marked cart bays](docs/vis-sortroom.png)
 
 ---
 
@@ -187,7 +192,7 @@ src/
   entities/       bag · player · conveyor · cart · tractor · aircraft
   systems/        containment · baggageFlow · hitching · interaction · physics
                   flightSchedule · announcements
-  render/         camera · renderer (Canvas 2D)
+  render/         camera · renderer · sprites · textures · fx (all Canvas 2D)
   ui/             hud.js · scannerCard.js · flightBoard.js
   dev/            debugOverlay.js — F3, never player-facing
 tools/            serve · smoketest · test · shot · m0-m3 suites · diagnostics

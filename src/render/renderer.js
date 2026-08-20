@@ -22,6 +22,13 @@ import { cartTowPoint } from '../entities/cart.js';
 import { tractorTowPoint } from '../entities/tractor.js';
 import { aircraftHoldZone } from '../entities/aircraft.js';
 import { CONFIG } from '../config.js';
+import { texAsphalt, texIndoor, texRoad, pattern, tint } from './textures.js';
+import { FX } from './fx.js';
+import {
+  drawPerson, drawBagTop, drawWheel, drawTractorBody, drawCartBody,
+  drawAircraftGear, drawHoldDoor, rr as roundRect,
+} from './sprites.js';
+import { EVENTS } from '../core/eventBus.js';
 
 /** World palette. Operational colours, high contrast, colour never the only channel. */
 export const PALETTE = {
@@ -74,10 +81,49 @@ export class Renderer {
     this.showGrid = false;
     this.showBounds = false;
     this._draws = [];        // reused every frame; never reallocated in a steady state
+    this.fx = new FX();
+    this._patterns = null;   // built lazily: they need a live 2D context
+    this._exhaustAccum = 0;
   }
 
-  render(state) {
+  /**
+   * Effects react to what the simulation ANNOUNCED, rather than to the renderer trying
+   * to spot a change by diffing frames. Read-only: nothing here writes game state.
+   */
+  attachBus(bus) {
+    if (!bus || this._bus) return;
+    this._bus = bus;
+    bus.on(EVENTS.BAG_LEFT_CONVEYOR, (e) => this.fx.dust(e.x, e.y, 0.8));
+    bus.on(EVENTS.BAG_RELEASED, (e) => this.fx.dust(e.x, e.y, 0.5));
+    bus.on(EVENTS.BAG_SPILLED, (e) => {
+      const bag = this._state && this._state.bagsById[e.bagId];
+      if (bag) this.fx.spill(bag.x, bag.y, Math.sign(bag.vx) || 1, Math.sign(bag.vy) || 1);
+    });
+    bus.on(EVENTS.BAG_ENTERED_HOLD, (e) => {
+      const bag = this._state && this._state.bagsById[e.bagId];
+      if (bag) this.fx.tick(bag.x, bag.y);
+    });
+    bus.on(EVENTS.SIM_RESET, () => this.fx.reset());
+  }
+
+  _buildPatterns() {
+    const { ctx } = this;
+    this._patterns = {
+      apron:   pattern(ctx, texAsphalt(PALETTE.apron, 'apron')),
+      staging: pattern(ctx, texAsphalt(PALETTE.staging, 'staging')),
+      ramp:    pattern(ctx, texAsphalt(PALETTE.ramp, 'ramp')),
+      stand:   pattern(ctx, texAsphalt(PALETTE.stand, 'stand')),
+      indoor:  pattern(ctx, texIndoor(PALETTE.indoor, 'indoor')),
+      road:    pattern(ctx, texRoad(PALETTE.road, 'road')),
+    };
+  }
+
+  /** @param dtSec real frame time; 0 while paused, which freezes every effect. */
+  render(state, dtSec = 0) {
     const { ctx, camera } = this;
+    this._state = state;
+    if (!this._patterns) this._buildPatterns();
+    this.fx.update(state.mode === 'playing' ? dtSec : 0);
 
     camera.resetTransform(ctx);
     ctx.fillStyle = PALETTE.void;
@@ -106,6 +152,7 @@ export class Renderer {
     this._draws.sort((a, b) => a.y - b.y);
     for (const d of this._draws) this._drawUpright(d, state);
 
+    this.fx.draw(ctx, camera);
     camera.resetTransform(ctx);
   }
 
@@ -113,14 +160,14 @@ export class Renderer {
 
   _drawGround() {
     const { ctx } = this;
-    ctx.fillStyle = PALETTE.apron;
+    ctx.fillStyle = this._patterns.apron || PALETTE.apron;
     ctx.fillRect(0, 0, WORLD.widthM, WORLD.heightM);
   }
 
   _drawZones() {
     const { ctx } = this;
     for (const z of ZONES) {
-      ctx.fillStyle = ZONE_FILL[z.kind] || PALETTE.apron;
+      ctx.fillStyle = this._patterns[z.kind] || ZONE_FILL[z.kind] || PALETTE.apron;
       ctx.fillRect(z.x, z.y, z.w, z.h);
     }
   }
@@ -238,6 +285,8 @@ export class Renderer {
       ctx.lineTo(tx + 2.6, tw / 2); ctx.lineTo(tx + 1.3, tw / 2);
       ctx.closePath(); ctx.fill();
       ctx.restore();
+
+      drawAircraftGear(ctx, ac);
 
       // the hold door, on the apron where the containment test actually is
       const z = aircraftHoldZone(ac);
@@ -438,6 +487,18 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.fillText(ac.number, -1.5, -H.fuselage + 1.65);
 
+    // the cargo door, hinged and travelling — door01 eases over about a second, so hold
+    // closing is something you watch come down rather than a state that silently flipped
+    // Low on the near side, lined up over the hold zone the containment test uses —
+    // not mid-fuselage, where it read as a hatch in the roof.
+    drawHoldDoor(ctx, ac, ac.holdOffsetX - 1.15, -1.25, 2.3, 1.15);
+
+    // anti-collision strobe, on simulation time so it stops when the game does
+    if ((simTimeMsOf(this) % 1500) < 90) {
+      ctx.fillStyle = 'rgba(255,240,220,0.95)';
+      ctx.beginPath(); ctx.arc(L / 2 - 1.2, top - 3.0, 0.28, 0, Math.PI * 2); ctx.fill();
+    }
+
     ctx.fillStyle = ac.holdOpen ? 'rgba(94,201,106,0.95)' : 'rgba(255,90,90,0.95)';
     ctx.font = '800 0.9px Quicksand, "Segoe UI", system-ui, sans-serif';
     ctx.fillText(ac.holdOpen ? 'HOLD OPEN' : 'HOLD CLOSED', -L / 2 - 4.2, -0.3);
@@ -449,18 +510,20 @@ export class Renderer {
     camera.beginUpright(ctx, cart.x, cart.y);
     const sd = W * camera.squash;
 
+    // wheels first, so the bed sits over them. They turn on distance rolled.
+    const spin = cart.rolledM / 0.24;
+    const along = Math.cos(cart.rot), across = Math.sin(cart.rot);
+    for (const ox of [-0.72, 0.72]) {
+      drawWheel(ctx, along * ox - across * 0.0, across * ox * camera.squash - 0.24,
+                0.24, spin);
+    }
+
     extrude(ctx, cart.rot, L, sd, H.cart, '#262a34', 0.16);
 
-    // bed top
+    // bed
     ctx.save();
     ctx.translate(0, -H.cart);
-    ctx.rotate(cart.rot);
-    ctx.fillStyle = '#434959';
-    roundRect(ctx, -L / 2, -sd / 2, L, sd, 0.16); ctx.fill();
-    ctx.strokeStyle = '#6a7284'; ctx.lineWidth = 0.1;
-    ctx.strokeRect(-L / 2 + 0.1, -sd / 2 + 0.06, L - 0.2, sd - 0.12);
-    ctx.fillStyle = '#2a2e38';
-    ctx.fillRect(L / 2 - 0.05, -0.1, 0.42, 0.2);
+    drawCartBody(ctx, cart, sd);
     ctx.restore();
 
     // stability warning — GDD §6.4 wants spill risk readable BEFORE it happens
@@ -513,31 +576,15 @@ export class Renderer {
     camera.beginUpright(ctx, v.x, v.y);
     const sd = W * camera.squash;
 
-    extrude(ctx, v.rot, L, sd, H.tractor * 0.55, '#7d4712', 0.2);
+    // wheels, turning on the odometer
+    const spin = v.odometerM / 0.28;
+    const along = Math.cos(v.rot);
+    for (const ox of [-0.66, 0.66]) {
+      drawWheel(ctx, along * ox, -0.26, 0.28, spin);
+    }
 
-    ctx.save();
-    ctx.translate(0, -H.tractor * 0.55);
-    ctx.rotate(v.rot);
-    ctx.fillStyle = v.driverId ? '#d87a2a' : '#a8601f';
-    roundRect(ctx, -L / 2, -sd / 2, L, sd, 0.2); ctx.fill();
-    ctx.strokeStyle = '#3a2409'; ctx.lineWidth = 0.08; ctx.stroke();
-
-    // an unmistakable front — GDD §19.1
-    ctx.fillStyle = '#f2e2c0';
-    ctx.beginPath();
-    ctx.moveTo(L / 2 - 0.05, -sd / 2 + 0.1);
-    ctx.lineTo(L / 2 + 0.3, 0);
-    ctx.lineTo(L / 2 - 0.05, sd / 2 - 0.1);
-    ctx.closePath(); ctx.fill();
-
-    ctx.fillStyle = '#2a2e38';
-    ctx.fillRect(-L / 2 - 0.34, -0.1, 0.4, 0.2);
-    ctx.restore();
-
-    // roll cage, standing above the deck
-    ctx.strokeStyle = '#5a3a12';
-    ctx.lineWidth = 0.12;
-    ctx.strokeRect(-0.45, -H.tractor, 0.9, H.tractor - H.tractor * 0.55);
+    extrude(ctx, v.rot, L, sd, H.tractor * 0.28, '#6b3d0f', 0.2);
+    drawTractorBody(ctx, v, sd, state.simTimeMs, !!v.driverId);
 
     if (!v.driverId && state.player.targetVehicleId === v.id) {
       ctx.strokeStyle = PALETTE.paint;
@@ -547,8 +594,18 @@ export class Renderer {
       ctx.stroke();
     }
 
-    // the driver, sitting in it
-    if (v.driverId) this._person(0, -H.tractor * 0.62, 0.55, false, Math.cos(v.rot), Math.sin(v.rot));
+    // the driver, sitting in it — no walk cycle, but still breathing
+    if (v.driverId) {
+      ctx.save();
+      ctx.translate(-0.08, -H.tractor * 0.30);
+      drawPerson(ctx, {
+        s: 0.62, walk: 0, move01: 0,
+        aimX: Math.cos(v.rot), aimY: Math.sin(v.rot),
+        carrying: !!state.player.carryingBagId, charge01: 0,
+        bobT: state.simTimeMs / 1000,
+      });
+      ctx.restore();
+    }
   }
 
   /** GDD §7.2: a tag is code + colour + icon. The bag's own colour says nothing. */
@@ -568,15 +625,10 @@ export class Renderer {
     ctx.translate(0, -t);
     ctx.rotate(bag.rot);
 
-    ctx.fillStyle = bag.appearance.color;
-    roundRect(ctx, -w / 2, -sd / 2, w, sd, 0.1); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 0.04; ctx.stroke();
-
-    if (bag.appearance.strap) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.14)';
-      ctx.lineWidth = 0.07;
-      ctx.beginPath(); ctx.moveTo(-w / 2, 0); ctx.lineTo(w / 2, 0); ctx.stroke();
-    }
+    // The body, by physical kind — suitcase, duffel, hardcase or backpack, each with
+    // its own handles, straps and wheels. Purely cosmetic: GDD §7.2 keeps identity in
+    // the TAG, so a player must never be able to sort by shape either.
+    drawBagTop(ctx, bag, w, sd);
 
     const ts = Math.min(sd * 0.82, 0.36);
     ctx.fillStyle = bag.appearance.tagColor;
@@ -603,10 +655,19 @@ export class Renderer {
     }
   }
 
+  /**
+   * The crew, animated.
+   *
+   * Every input to the animation comes from SIMULATION state — the walk phase from
+   * distance walked, the lean from velocity, the wind-up from the charge timer. Nothing
+   * is stored here, so two runs of a seed animate identically and a paused game freezes
+   * mid-stride instead of carrying on jogging behind the pause card.
+   */
   _player(p) {
     const { ctx, camera } = this;
     camera.beginUpright(ctx, p.x, p.y);
 
+    const speed = Math.hypot(p.vx, p.vy);
     if (p.charging && p.carryingBagId) {
       const f = chargeFrac(p);
       ctx.strokeStyle = f > 0.85 ? PALETTE.safety : PALETTE.paint;
@@ -615,50 +676,17 @@ export class Renderer {
       ctx.ellipse(0, 0, 1.0, 1.0 * camera.squash, 0, Math.PI * 1.15, Math.PI * (1.15 + 0.7 * f));
       ctx.stroke();
     }
-    this._person(0, 0, 1, true, p.aimX, p.aimY);
-  }
 
-  /**
-   * A person, standing. Drawn as legs, a hi-vis torso and a head stacked up the screen
-   * rather than as a disc seen from above — which is the entire point of the 2.5D pass.
-   * `aimX/aimY` only nudge the shoulders, so facing still reads without a full turn.
-   */
-  _person(x, y, scale, legs, aimX = 1, aimY = 0) {
-    const { ctx } = this;
-    const s = scale;
-    const lean = Math.max(-1, Math.min(1, aimX)) * 0.10 * s;
-    const facingAway = aimY < -0.35;
-
-    ctx.save();
-    ctx.translate(x, y);
-
-    if (legs) {
-      ctx.fillStyle = '#2d3340';
-      ctx.fillRect(-0.20 * s, -0.62 * s, 0.16 * s, 0.62 * s);
-      ctx.fillRect(0.04 * s, -0.62 * s, 0.16 * s, 0.62 * s);
-    }
-
-    // hi-vis torso
-    ctx.save();
-    ctx.translate(lean, 0);
-    ctx.fillStyle = '#e8e04a';
-    roundRect(ctx, -0.30 * s, -1.25 * s, 0.60 * s, 0.68 * s, 0.14 * s); ctx.fill();
-    ctx.strokeStyle = '#8a8420'; ctx.lineWidth = 0.05 * s; ctx.stroke();
-    // reflective band
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.fillRect(-0.30 * s, -1.02 * s, 0.60 * s, 0.09 * s);
-
-    // head
-    ctx.fillStyle = facingAway ? '#3c3327' : '#e8c9a0';
-    ctx.beginPath();
-    ctx.arc(0, -1.42 * s, 0.21 * s, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#f2c14e';                       // hard hat
-    ctx.beginPath();
-    ctx.arc(0, -1.47 * s, 0.22 * s, Math.PI, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-    ctx.restore();
+    drawPerson(ctx, {
+      s: 1,
+      // 3.6 rad/m is a stride of about 1.75 m — a walk, not a scurry.
+      walk: p.walkedM * 3.6,
+      move01: Math.min(1, speed / CONFIG.player.maxSpeed),
+      aimX: p.aimX, aimY: p.aimY,
+      carrying: !!p.carryingBagId,
+      charge01: p.charging ? chargeFrac(p) : 0,
+      bobT: (this._state ? this._state.simTimeMs : 0) / 1000,
+    });
   }
 
   /** Debug only (F3 -> B). GDD §21.8 keeps this out of player-facing UI. */
@@ -686,23 +714,6 @@ export class Renderer {
 }
 
 /* ── drawing helpers ─────────────────────────────────────────────────────── */
-
-/** Own implementation rather than ctx.roundRect: this runs a few hundred times a frame
- *  and must behave identically on every target browser (GDD §21.1 lists three). */
-function roundRect(ctx, x, y, w, h, r) {
-  const rr = Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2);
-  ctx.beginPath();
-  ctx.moveTo(x + rr, y);
-  ctx.lineTo(x + w - rr, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + rr);
-  ctx.lineTo(x + w, y + h - rr);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - rr, y + h);
-  ctx.lineTo(x + rr, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - rr);
-  ctx.lineTo(x, y + rr);
-  ctx.quadraticCurveTo(x, y, x + rr, y);
-  ctx.closePath();
-}
 
 /**
  * The side of a box, for something that can be rotated.
@@ -749,3 +760,7 @@ function shade(hex) {
   const b = Math.round((n & 255) * 0.55);
   return `rgb(${r},${g},${b})`;
 }
+
+/** The renderer keeps the last state it drew, so helpers can read simulation time
+ *  without every one of them taking it as an argument. */
+function simTimeMsOf(r) { return r._state ? r._state.simTimeMs : 0; }

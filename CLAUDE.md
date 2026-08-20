@@ -280,6 +280,26 @@ Straight-down read as a floorplan — the user said so. GDD §19.1 permits "top-
   featureless wall that buried its own wings and most of the stand. Heights in `H` are
   presentation only; none of them is collision.
 
+## Animation: derived, never stored (2026-08-19)
+
+**Every moving part reads a value the simulation already owns.** The walk cycle reads
+`player.walkedM`, wheels read `odometerM` and `cart.rolledM`, beacons and strobes read
+`simTimeMs`, the cargo door reads `aircraft.door01`.
+
+That is not a stylistic choice — it buys three things that would each cost real work
+otherwise: the renderer stays stateless, two runs of one seed animate identically (so a
+screenshot is reproducible and `describe()` stays a complete determinism contract), and a
+paused game freezes mid-stride instead of jogging on behind the pause card.
+
+**Do not add a renderer-side animation clock.** If something needs to move, find the sim
+value it should move with — and if there is not one, add it to the entity (`rolledM` and
+`door01` were both added this way, and both are two lines).
+
+The one exception is `render/fx.js`, which owns particle lifetimes and is driven by the
+REAL frame delta — and is handed `dt = 0` whenever the mode is not `playing`, so it
+freezes with everything else. It reacts to bus EVENTS rather than diffing frames, uses a
+seeded stream (m0 G1 forbids `Math.random` anywhere in `src/`), and is capped.
+
 ## Publishing — do this every milestone
 
 **Live: https://dumb-tony.github.io/AirportBaggageCrew/**

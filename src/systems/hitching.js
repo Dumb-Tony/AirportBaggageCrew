@@ -141,6 +141,7 @@ export function updateTrain(state, vehicle, dtSec, bus = null, simTimeMs = 0) {
 
     /* stability: lateral load is speed x yaw rate, weighted by how full the bed is */
     if (dtSec > 0) {
+      cart.rolledM += Math.hypot(cart.x - prevX, cart.y - prevY);   // turns the wheels
       const moved = Math.hypot(cart.x - prevX, cart.y - prevY) / dtSec;
       const omega = angleDelta(cart.rot, prevRot) / dtSec;
       const lat = Math.abs(moved * omega) * (0.5 + cartFillFrac(cart));

@@ -35,6 +35,7 @@ export function createCart(id, x, y, rot = 0) {
     hitchedToId: null,          // parent: a tractor id or another cart id
     nextCartId: null,           // child
     stability: 1,               // 1 steady, 0 about to throw a bag off
+    rolledM: 0,                 // distance travelled, so the wheels can turn (presentation)
     spills: 0,
   };
 }

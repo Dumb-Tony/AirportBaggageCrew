@@ -31,6 +31,7 @@ export function createAircraft(id, flightId, number, stand) {
     x: stand.park.x, y: stand.park.y,
     present: false,        // is it on or approaching the stand at all
     holdOpen: false,
+    door01: 0,             // 0 shut, 1 fully open — eased, so the door visibly moves
     lengthM: CONFIG.aircraft.lengthM,
     wingspanM: CONFIG.aircraft.wingspanM,
   };
@@ -96,7 +97,15 @@ export function stepAircraft(aircraft, flight, dtSec, simTimeMs) {
   aircraft.holdOpen = flight.state === 'BAG_ACCEPTANCE' ||
                       flight.state === 'LOADING' ||
                       flight.state === 'FINAL_BAG_CALL';
-  void dtSec;
+
+  // The door TRAVELS. `holdOpen` is the rule and flips on the tick; door01 is what the
+  // player watches, and it takes about a second — so hold closing is something you can
+  // see coming down rather than a state that silently changed behind you (GDD §5.3).
+  const target = aircraft.holdOpen ? 1 : 0;
+  const rate = 1 / 1.1;
+  if (aircraft.door01 < target) aircraft.door01 = Math.min(target, aircraft.door01 + rate * dtSec);
+  else if (aircraft.door01 > target) aircraft.door01 = Math.max(target, aircraft.door01 - rate * dtSec);
+
   return aircraft;
 }
 

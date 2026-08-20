@@ -34,6 +34,8 @@ const camera = new Camera({
 });
 const renderer = new Renderer(canvas, camera);
 renderer.showGrid = CONFIG.render.showGrid;
+// Effects react to announced events rather than to the renderer diffing frames.
+renderer.attachBus(game.bus);
 
 const input = new Input(window).attach();
 const hud   = new Hud(uiRoot, game);
@@ -92,7 +94,7 @@ function frame(now) {
   // easing while paused. It must never feed anything back into the game.
   camera.follow(game.state.player.x, game.state.player.y, Math.min(dt, 100) / 1000);
 
-  renderer.render(game.state);
+  renderer.render(game.state, Math.min(dt, 100) / 1000);
   hud.update();
   debug.update(dt);
 

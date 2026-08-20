@@ -22,7 +22,11 @@ export const WEIGHT_CLASSES = {
   heavy:  { speedMult: 0.62, throwMult: 0.55, w: 0.88, h: 0.60, kg: 31 },
 };
 
-/** Cosmetic suitcase colours. Nothing reads these for a rule. */
+/** The physical sort of bag. Drawing only — no rule reads it. */
+const BAG_KINDS = ['suitcase', 'suitcase', 'duffel', 'hardcase', 'backpack'];
+
+/** Cosmetic colours. Nothing reads these for a rule — GDD 7.2 forbids colour being a
+ *  shortcut for the flight, so the body deliberately says nothing. */
 const BODY_COLORS = [
   '#2f3a4a', '#7d4a3a', '#3d5a4a', '#5a4a6a', '#8a7a4a', '#6a2f3a',
   '#4a4a52', '#2f5a6a', '#8a5a7a', '#3a3a2f', '#6a6a7a', '#7a3a2f',
@@ -53,6 +57,7 @@ export function createBag(spec, serial, tagBase, rng) {
 
     appearance: {
       color: rng.pick(BODY_COLORS),
+      kind: rng.pick(BAG_KINDS),        // suitcase | duffel | hardcase | backpack
       icon: flight.tag.icon,
       tagColor: flight.tag.color,
       size: spec.weightClass,

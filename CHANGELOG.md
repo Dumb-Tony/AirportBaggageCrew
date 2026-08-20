@@ -1,5 +1,55 @@
 # Changelog
 
+## Visual overhaul — 2026-08-19
+
+Playtest note: *"I like the angle better, but it's still just basic geometric shapes with
+no animation."* Both true. The oblique pass fixed the camera and left everything on it a
+rounded rectangle.
+
+**Animation, derived rather than stored.** Every moving part reads a value the simulation
+already owns — the walk cycle from `player.walkedM`, wheels from `odometerM` and a new
+`cart.rolledM`, beacons and strobes from `simTimeMs`. That buys three things at once: the
+renderer stays stateless, two runs of a seed animate identically, and a paused game
+freezes mid-stride instead of jogging on behind the pause card.
+
+- **The crew walk.** Legs swing about the hip on a 1.75 m stride, the body bobs on each
+  footfall, arms counter-swing, and there is a slow breath when standing still. Carrying
+  puts both arms out front; a throw wind-up drags the near arm back and leans the torso.
+  Facing changes the head, the eyes and which way the hard-hat brim points.
+- **Wheels turn.** Tractor and cart wheels rotate on distance actually travelled, with a
+  spoke so the rotation is visible.
+- **The cargo door travels.** `holdOpen` is the rule and flips on the tick; `door01` eases
+  over about a second, so hold closing is something you watch come down rather than a
+  state that silently flipped (GDD §5.3).
+- **An amber beacon** on the tractor and an **anti-collision strobe** on the aircraft,
+  both on simulation time so both stop when the game does.
+
+**Surfaces, not fills.** `render/textures.js` builds tarmac, sealed concrete and worn
+road as procedural tiles — aggregate speckle, patches, hairline cracks, slab joints, cart
+scuffs, worn wheel paths. `canvasTex` is copied from Something's Different (Dev\INDEX.md
+→ "Procedural geometry & texture"), keeping the name; adapted to return a CanvasPattern
+and to draw from a **seeded** stream, so a texture is byte-identical every run.
+
+**Props that are objects.** Bags now have a physical kind — suitcase with a pull handle
+and wheels, duffel with end panels and a strap, hardcase with ribs and metal corner caps,
+backpack with a front pocket and shoulder straps. Carts have plank decks and side rails;
+the tractor has a body stripe, a seat, a steering column and a roll cage; the aircraft has
+engines slung under the wings and landing gear.
+
+**`render/fx.js`** — dust when a bag lands, dust and grit when a cart sheds one on a
+corner, a small green tick when one goes into the hold. Shape copied from
+`Brainrot\animations.js` `class FX`, keeping the name; three changes: seeded rather than
+`Math.random` (m0 G1 forbids it and a screenshot has to be reproducible), world-space in
+metres so particles sit correctly under an oblique camera, and no screen shake — GDD
+§16.6 requires that to be adjustable and there is no settings screen until M5. It reacts
+to bus EVENTS rather than diffing frames, and it is capped (GDD §24.1).
+
+Tuned along the way: the asphalt speckle was skewed light and read as noise; the cargo
+door was first drawn mid-fuselage, where it looked like a hatch in the roof.
+
+600 assertions still green — none of this touches the simulation.
+
+
 ## Milestone 4 — outcomes and pressure — 2026-08-19
 
 **Exit criterion: full acceptance tests for all outcome paths pass. Met.**
