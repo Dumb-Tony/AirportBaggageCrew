@@ -38,23 +38,22 @@ $html = Get-Content $gamePath -Raw -Encoding UTF8
 if ($html -notmatch '</body>') { Write-Host "No </body> in $Game." -ForegroundColor Red; exit 2 }
 $inject = "<script type=""module"" src=""$($Tests -replace '\\','/')""></script>`r`n</body>"
 $html = $html -replace '</body>', $inject
+
+# Stamp it. Other projects on this machine run this same harness with the same scratch
+# filename, so "something answered 200 on the port" is NOT proof it is our server — it
+# can silently run the wrong game's page and report its results as ours.
+$stamp = "ABCTEST-" + [System.Guid]::NewGuid().ToString("N")
+$html = $html -replace '</head>', "<!--$stamp--></head>"
 Set-Content -Path $scratch -Value $html -Encoding utf8
 
-$server = Start-Process powershell `
-  -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File","$root\tools\serve.ps1","-NoBrowser","-Port","$Port" `
-  -WindowStyle Hidden -PassThru
-
-$url = "http://localhost:$Port/$scratchName"
-$tries = 0; $up = $false
-while ($tries -lt 40 -and -not $up) {
-  try { if ((Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { $up = $true } }
-  catch { Start-Sleep -Milliseconds 250; $tries++ }
-}
-if (-not $up) {
-  Write-Host "Server never came up on port $Port." -ForegroundColor Red
-  if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+. "$root\tools\_serve-mine.ps1"
+$srv = Start-MyServer -Root $root -ScratchName $scratchName -Stamp $stamp -Ports @($Port, 8386, 8387, 8388, 8389)
+if (-not $srv) {
+  Write-Host "Could not get a port serving this project." -ForegroundColor Red
   exit 2
 }
+$server = $srv.Process
+$url = $srv.Url
 
 # NOTE: chrome.exe is a GUI-subsystem binary, so `$x = & chrome --dump-dom` captures
 # NOTHING under PowerShell - the DOM has to be redirected to a file. Do not "simplify"

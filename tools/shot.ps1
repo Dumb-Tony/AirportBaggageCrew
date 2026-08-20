@@ -27,23 +27,20 @@ if ($Setup) {
   $inject = "<script type=""module"" src=""$($Setup -replace '\\','/')""></script>`r`n</body>"
   $html = $html -replace '</body>', $inject
 }
+# Stamp the scratch copy so the server check can prove the port is serving THIS project
+# and not another game that happens to hold the port. See tools\_serve-mine.ps1.
+$stamp = "ABCSHOT-" + [System.Guid]::NewGuid().ToString("N")
+$html = $html -replace '</head>', "<!--$stamp--></head>"
 Set-Content -Path $scratch -Value $html -Encoding utf8
 
-$server = Start-Process powershell `
-  -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-File","$root\tools\serve.ps1","-NoBrowser","-Port","$Port" `
-  -WindowStyle Hidden -PassThru
-
-$url = "http://localhost:$Port/$scratchName"
-$tries = 0; $up = $false
-while ($tries -lt 40 -and -not $up) {
-  try { if ((Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 2).StatusCode -eq 200) { $up = $true } }
-  catch { Start-Sleep -Milliseconds 250; $tries++ }
-}
-if (-not $up) {
-  Write-Host "Server never came up on port $Port." -ForegroundColor Red
-  if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+. "$root\tools\_serve-mine.ps1"
+$srv = Start-MyServer -Root $root -ScratchName $scratchName -Stamp $stamp -Ports @($Port, 8380, 8381, 8382, 8383)
+if (-not $srv) {
+  Write-Host "Could not get a port serving this project." -ForegroundColor Red
   exit 2
 }
+$server = $srv.Process
+$url = $srv.Url
 
 $outPath = Join-Path $root $Out
 $outDir = Split-Path $outPath -Parent

@@ -9,7 +9,13 @@
 
 export class Camera {
   constructor({ worldW, worldH, paddingM = 0, maxPixelRatio = 2,
-                viewWidthM = 62, followLerp = 7 }) {
+                viewWidthM = 62, followLerp = 7, squash = 0.75 }) {
+    // OBLIQUE, not straight down. The GROUND is foreshortened vertically by `squash`,
+    // as if seen from about 50 degrees; things that STAND UP are drawn upright at their
+    // foreshortened base position, with their height going up the screen. That is the
+    // whole 2.5D trick, and it is why there are two transforms below rather than one:
+    // applyGround() for anything lying flat, beginUpright() for anything standing on it.
+    this.squash = squash;
     this.worldW = worldW;
     this.worldH = worldH;
     this.paddingM = paddingM;
@@ -92,14 +98,37 @@ export class Camera {
     return { w: this.cssW, h: this.cssH };
   }
 
-  /** Apply world->screen to a 2D context. Everything drawn after this is in METRES. */
-  applyTo(ctx) {
+  /**
+   * The GROUND plane: metres in, foreshortened vertically. Use for anything that lies
+   * flat — floor, painted markings, shadows, footprints.
+   */
+  applyGround(ctx) {
+    const sx = this.scale * this.dpr;
+    const sy = this.scale * this.squash * this.dpr;
+    const ox = (this.cssW * this.dpr) / 2 - this.centre.x * sx;
+    const oy = (this.cssH * this.dpr) / 2 - this.centre.y * sy;
+    ctx.setTransform(sx, 0, 0, sy, ox, oy);
+    return sx;
+  }
+
+  /** Kept for the 'fit' mode and anything that wants the old square mapping. */
+  applyTo(ctx) { return this.applyGround(ctx); }
+
+  /**
+   * Stand an object on the ground at (wx, wy). After this, one unit is one metre in BOTH
+   * axes — unsquashed — with the origin at the object's base and -y going up into the
+   * air. Text and circles keep their proportions, which is why they are not drawn on the
+   * ground transform.
+   */
+  beginUpright(ctx, wx, wy) {
+    const p = this.worldToScreen(wx, wy);
     const s = this.scale * this.dpr;
-    const ox = (this.cssW * this.dpr) / 2 - this.centre.x * s;
-    const oy = (this.cssH * this.dpr) / 2 - this.centre.y * s;
-    ctx.setTransform(s, 0, 0, s, ox, oy);
+    ctx.setTransform(s, 0, 0, s, p.x * this.dpr, p.y * this.dpr);
     return s;
   }
+
+  /** How tall a metre-deep footprint appears once foreshortened. */
+  get depthScale() { return this.squash; }
 
   /** Reset to raw device pixels — for HUD drawn on the canvas, and for clearing. */
   resetTransform(ctx) { ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); }
@@ -108,7 +137,7 @@ export class Camera {
     const s = this.scale;
     return {
       x: this.cssW / 2 + (x - this.centre.x) * s,
-      y: this.cssH / 2 + (y - this.centre.y) * s,
+      y: this.cssH / 2 + (y - this.centre.y) * s * this.squash,
     };
   }
 
@@ -116,10 +145,16 @@ export class Camera {
     const s = this.scale;
     return {
       x: this.centre.x + (sx - this.cssW / 2) / s,
-      y: this.centre.y + (sy - this.cssH / 2) / s,
+      y: this.centre.y + (sy - this.cssH / 2) / (s * this.squash),
     };
   }
 
-  /** Metres visible across the viewport — used to decide label density. */
-  get visibleM() { return { w: this.cssW / this.scale, h: this.cssH / this.scale }; }
+  /** Metres visible across the viewport. Vertically that is MORE than it used to be:
+   *  foreshortening fits more of the airport into the same pixels. */
+  get visibleM() {
+    return {
+      w: this.cssW / this.scale,
+      h: this.cssH / (this.scale * this.squash),
+    };
+  }
 }

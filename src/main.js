@@ -30,6 +30,7 @@ const camera = new Camera({
   maxPixelRatio: CONFIG.render.maxPixelRatio,
   viewWidthM: CONFIG.render.viewWidthM,
   followLerp: CONFIG.render.followLerp,
+  squash: CONFIG.render.groundSquash,
 });
 const renderer = new Renderer(canvas, camera);
 renderer.showGrid = CONFIG.render.showGrid;
