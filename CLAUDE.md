@@ -67,16 +67,35 @@ Dev-wide catalog of what already exists and where to copy it from.
   `tools/m6-tests.js` is GDD §29 made executable, with four criteria reported OPEN
   because they need external playtesters. Measured: 124 bags and three loaded carts cost
   0.079 ms per step, 210x frame-budget headroom; zero dead ends and zero unreachable
-  bags across nine played shifts. **119 assertions, 898 total** + `docs/m6-report.png`.
+  bags across nine played shifts. **156 assertions** + `docs/m6-report.png`.
+- 2026-08-20 — **HARDENING PASS.** Four adversarial audits — three in parallel over
+  `src/systems`, over `core`/`entities`/`render`/`ui`, and over the GDD itself, then a
+  fourth re-reading the fixes. Eighteen real defects, every one reproduced before it was
+  touched. The worst: the difficulty assist stretched the flights but not the bags, so
+  the scanner counted down to the wrong departure and §20.4's late-bag twist landed two
+  minutes early; hitching a loaded cart threw a bag off it with the tractor standing
+  still; getting out of the tractor could drop you inside a wall and freeze the game;
+  the report could claim more mishandled bags than the shift had; and keys tapped behind
+  the pause card all fired on resume. Four missing GDD requirements built (§24.3 recover
+  action, §23.1 onboarding flag, §20.2 priority penalty, §16.3 board icons). Plus
+  `tools/m7-tests.js` for working code no assertion would have missed, and
+  `tools/_soak.js` fuzzing every invariant after every step. **1085 assertions, eight
+  suites** + `docs/m6-title.png`.
 
 ## Phase 1 is done. What is actually left
 
-GDD §29's Functional, UX and Quality criteria all pass (`tools/m6-tests.js`). FOUR
+GDD §29's Functional, UX and Quality criteria all pass (`tools/m6-tests.js`). FIVE
 CRITERIA ARE OPEN and cannot be closed by any program — they need external players: a
-first-timer completing the loop unaided, three playtesters understanding the airport
-will not wait, two reporting a memorable mistake, and repeated play improving routing.
-Do not call Phase 1 complete on a green suite alone; the suite says so itself, in
-section Z, and the README repeats it.
+first-timer completing the loop unaided, three playtesters understanding the airport will
+not wait, two reporting a memorable mistake, repeated play improving routing, and pressure
+coming from overlapping simple work rather than confusing controls. Do not call Phase 1
+complete on a green suite alone; the suite says so itself, in section Z.
+
+The balance telemetry says where to look next, and it is not the schedule: **90% of
+missed bags are still sitting in a cart** and the belt queue never exceeds six. The crew
+keeps up with sorting; the constraint is trips to the gate. That is why the "veteran" bot
+profile scores WORSE than "average" — it hauls at six bags instead of eight and spends
+the difference driving. Shorten the haul before touching the timetable again.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -236,6 +255,26 @@ section Z, and the README repeats it.
 - **Reduced motion is TWO switches, not one.** `renderer.fx.enabled` kills the particle
   system and `renderer.reducedMotion` holds the tractor beacon and the aircraft strobe
   steady. A dimmed strobe is still a strobe, so neither may be implemented as a fade.
+- ⚠ **A "paused" check must key on `clock.paused`, never on `steps === 0`.** A RUNNING
+  frame banks zero steps whenever the accumulator has not reached one — every other
+  frame on a 120 Hz display. Draining the input edge buffer there discarded half of every
+  E, F, Q and X press, and ONLY the edge verbs, because movement reads `isDown`. Every
+  suite drives frames at exactly 1000/60, so nothing could have caught it.
+- **`X` is the recover action (GDD §24.3), and it is a LOCAL unstick.** It never moves
+  you toward where you were going: the drive to the gate is the game, and an escape hatch
+  that shortened it would be a movement ability. It does nothing when nothing is stuck.
+- **Anything POSITIONED rather than moved must be pushed out of walls.** `moveWithWalls`
+  only commits a move whose destination is clear and never updates position while
+  blocked, so an entity that ends up inside geometry can never leave — which reads as
+  the game having frozen. `exitVehicle` and `hitch` both learned this the hard way.
+- **`pushOutOfWalls` is a TELEPORT, so nothing may difference position across it.** The
+  cart stability model did, and read a wall scrape in the doorway as 45 m/s and 24 rad/s
+  — a spilled bag from a stationary train. Measure against the constraint solution.
+- **The assist scales the flights AND the bag timetable.** They are stretched by the same
+  factor or the shift is reshaped rather than lengthened: §20.4's late bags landed before
+  final call and SK307 fed the belt before its aircraft existed. Anything that reads
+  `FLIGHT_DEFS` at runtime is reading the authored shift, not the one being played —
+  read `state.flightsById`.
 - **`CrewBot` (`tools/_bot.js`) MUST NEVER WRITE TO STATE.** Reading is fine — a player
   can see the ramp. The moment it assigns a position or moves a bag it stops being a
   measurement and becomes a second, worse implementation of the game. Every number in
@@ -354,6 +393,16 @@ section Z, and the README repeats it.
 - `$args` is a PowerShell automatic variable; naming a local `$args` breaks the script.
 
 ## Deviations from the GDD, and why
+
+- ⚠ **The authored shift is 34 bags; GDD §20.2 asks for 40-60, and §20.4 for 14-18 per
+  flight.** The Milestone 6 balance pass cut 16/16/18 to 11/11/12 because 50 bags was
+  roughly sixteen minutes of work in an eight-minute shift and every run of every seed
+  scored five figures negative. §31.4 grants "exact authored timings and bag counts
+  during balance passes", so this is inside the licence — but it is a real departure
+  from a stated range and §31.1.1 says to report it rather than let it pass unremarked.
+  The route is what makes 50 impossible, not the count: measured, 90% of missed bags are
+  still sitting in a cart and the belt queue never exceeds six. Shorten the haul and the
+  count could go back up.
 
 - **§21.1 "runs by opening `index.html`" is impossible with ES modules** (CORS blocks
   module loads on `file://`). Modules won because §21.2's whole architecture rests on

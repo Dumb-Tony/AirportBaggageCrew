@@ -120,7 +120,7 @@ bounds      ${this.renderer.showBounds ? 'ON' : 'off'} (B)    grid ${this.render
 recent events
 ${evts}
 
-pending: scoring + shift report (M4) - audio (M5)`;
+keys        [ ] time scale   . skip 10s   , next flight event   X unstick`;
   }
 
   destroy() { window.removeEventListener('keydown', this._onKey); this.el.remove(); }

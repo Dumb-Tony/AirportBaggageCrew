@@ -66,6 +66,9 @@ export class CrewBot {
       bagsCarried: 0, cartLoads: 0, holdLoads: 0, hauls: 0, scans: 0, unreachable: 0,
       walkedM: 0, drivenM: 0, idleMs: 0, stuckMs: 0,
       phaseMs: {}, firstLoadMs: null, deadEnds: [],
+      // GDD §28.4 asks for "queue length" — how deep the pile the crew is behind gets.
+      // Sampled rather than accumulated: it is a level, not a count.
+      queuePeak: 0, queueSamples: 0, queueSum: 0,
     };
     this._lastP = null;
     this._noProgressMs = 0;
@@ -120,6 +123,20 @@ export class CrewBot {
       }
     }
     this._lastP = { x: p.x, y: p.y };
+
+    // Queue depth: everything waiting on the belt or lying on the sort-room floor. Sampled
+    // once a second, because a per-frame series would be 41,000 numbers describing a
+    // quantity that moves once every few seconds.
+    if (Math.floor(st.simTimeMs / 1000) !== this._lastQueueSec) {
+      this._lastQueueSec = Math.floor(st.simTimeMs / 1000);
+      let q = 0;
+      for (const b of Object.values(st.bagsById)) {
+        if (b.location.type === 'conveyor' || b.location.type === 'floor') q++;
+      }
+      this.stats.queuePeak = Math.max(this.stats.queuePeak, q);
+      this.stats.queueSum += q;
+      this.stats.queueSamples++;
+    }
 
     // Cleared AFTER the stall check above, which reads last frame's value. Resetting it
     // first made the flag permanently false and the whole exemption a no-op.
@@ -694,6 +711,22 @@ export function playShift(g, input, skill = 'average', maxMs = 900000) {
     carts: Object.values(g.state.cartsById).map((c) => ({
       id: c.id, placard: c.placardFlightId, bags: c.bagIds.length, hitched: !!c.hitchedToId,
     })),
+    /* GDD §28.4's "misses by reason". A total tells you the shift went badly; the reason
+     * tells you WHY, and they call for different fixes — bags still on the belt mean the
+     * crew never got to them, bags in a cart mean a haul that left too late, and bags
+     * never spawned mean the timetable outran the conveyor. */
+    missesByReason: Object.values(g.state.bagsById).reduce((acc, b) => {
+      if (b.lifecycle !== 'missed') return acc;
+      const where = b.location.type === 'conveyor' ? 'still on the belt'
+                  : b.location.type === 'cart'     ? 'still in a cart'
+                  : b.location.type === 'carried'  ? 'in the hands at the whistle'
+                  : b.location.type === 'aircraftHold' ? 'in the wrong hold'
+                  : 'loose on the floor';
+      acc[where] = (acc[where] || 0) + 1;
+      return acc;
+    }, {}),
+    neverSpawned: Object.values(g.state.flightsById)
+      .reduce((t, f) => t + f.expectedCount, 0) - Object.keys(g.state.bagsById).length,
     byLifecycle: Object.values(g.state.bagsById).reduce((acc, b) => {
       const k = `${b.flightId.replace('flight_', '')}:${b.lifecycle}`;
       acc[k] = (acc[k] || 0) + 1; return acc;

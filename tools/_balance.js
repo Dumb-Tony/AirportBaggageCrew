@@ -111,8 +111,27 @@ const SEEDS = [12345, 777, 2468];
   say(`bags not in reach on arrival ${A((r) => r.bot.unreachable).toFixed(0)}   <- GDD §29 blocker check`);
   say(`distance walked            ${A((r) => r.bot.walkedM).toFixed(0)} m`);
   say(`distance driven            ${A((r) => r.bot.drivenM).toFixed(0)} m`);
+  say(`queue depth                peak ${A((r) => r.bot.queuePeak).toFixed(0)} bags waiting, ` +
+      `mean ${A((r) => r.bot.queueSum / Math.max(1, r.bot.queueSamples)).toFixed(1)}`);
   say(`idle (no progress)         ${secs(A((r) => r.bot.idleMs))} of ${secs(A((r) => r.simMs))}`);
   say(`stuck (>6 s, no progress)  ${secs(A((r) => r.bot.stuckMs))}`);
+  say('');
+
+  say('misses by reason (average skill, all seeds):');
+  {
+    const reasons = {};
+    for (const r of avgRows) {
+      for (const [k, v] of Object.entries(r.missesByReason || {})) reasons[k] = (reasons[k] || 0) + v;
+    }
+    const never = avgRows.reduce((t, r) => t + Math.max(0, r.neverSpawned || 0), 0);
+    if (never) reasons['never reached the belt'] = never;
+    const tot = Object.values(reasons).reduce((a, b) => a + b, 0) || 1;
+    for (const [k, v] of Object.entries(reasons).sort((a, b) => b[1] - a[1])) {
+      say(`  ${pad(k, 28)} ${num((v / avgRows.length).toFixed(1), 6)}  ` +
+          `${num(Math.round((v / tot) * 100) + '%', 5)}`);
+    }
+    if (!Object.keys(reasons).length) say('  nothing was missed');
+  }
   say('');
 
   say('time spent per phase (average skill, mean of seeds):');

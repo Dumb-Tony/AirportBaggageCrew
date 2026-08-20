@@ -1,5 +1,80 @@
 # Changelog
 
+## Hardening pass — 2026-08-20
+
+**1085 assertions across eight suites.** Phase 1 was already feature-complete; this is
+what four adversarial audits found in it.
+
+Three read-only audits ran in parallel — over `src/systems`, over
+`core`/`entities`/`render`/`ui`, and over the GDD itself. A fourth then re-read the fixes
+looking for ones that were wrong. Every finding below was reproduced before it was
+touched, and the fourth audit is the reason several of them were fixed twice.
+
+### The ones a player would have hit
+
+- **The difficulty assist stretched the flights but not the bags.** On Unhurried the
+  scanner card counted down to a departure five minutes early and then sat on `0:00`
+  while the hold was still open, disagreeing with the board on the same screen. The late
+  bags — GDD §20.4's whole twist, *"they arrive after final call, when the player has
+  moved on"* — landed two minutes **before** final call, and SK307 fed the belt three
+  minutes before its aircraft existed. Two audits found this independently.
+- **Hitching a loaded cart threw a bag off it with the tractor standing still.** `hitch()`
+  only rewrote the link ids, so the first towed step saw the cart teleport up to three
+  metres onto the drawbar and divided that by 1/60 s — a yaw rate near 90 rad/s. It also
+  counted every angled hitch, and every wall scrape, as a hard corner, so §11.3's *"cart
+  corners taken above safe speed"* was really counting hitches.
+- **Getting out of the tractor could drop you inside a wall**, and from in there no
+  direction is walkable at all: the game simply froze.
+- **The report could claim more mishandled bags than the shift had** — "9 delivered" above
+  "27 mishandled" on a 34-bag shift.
+- **Keys tapped behind the pause card all fired on resume.** Tap F then E and you got out
+  of the tractor and grabbed something on the first step back.
+- **Arrow keys could not move a settings slider** and Space could not press a focused
+  button, because the window key handler swallowed every bound code regardless of target
+  — while Enter, being unbound, worked. GDD §16.6 requires keyboard-only operation of the
+  panel that exists to satisfy §16.6.
+- **The title card still said "Milestone 5" and "fifty bags, eight minutes"** — the first
+  text anybody reads, a whole milestone out of date. It is derived from the live timetable
+  now, so it cannot drift again.
+
+### And one I introduced, then caught
+
+The paused-input fix keyed on `steps === 0`. A **running** frame also banks zero steps
+whenever the accumulator has not reached one — every other frame at 120 Hz — so it
+discarded about half of every E, F, Q and X press, and only the edge verbs. It would have
+read as "grab and hitch work about half the time". No suite could have caught it: every
+one drives frames at exactly 1000/60.
+
+### GDD requirements that were simply missing
+
+- **§24.3 a recover/stuck action.** `X` frees a wedged player, tractor or train. It is a
+  local unstick, not a teleport home, and does nothing at all when nothing is stuck.
+- **§23.1 the onboarding-complete flag.** The seven-step rail was restarting on every
+  shift, forever.
+- **§20.2 a priority bag *penalty*.** Only the bonus existed, so a priority bag you lost
+  cost exactly what any other lost bag cost.
+- **§16.3 icons on the flight board.** The rows carried colour and words; the third
+  channel — the icon drawn on every bag in the world — was missing from the board.
+- **§28.4 queue length and misses by reason.** Two of the six telemetry lines the GDD
+  names had never been produced. They immediately paid for themselves: **90% of missed
+  bags are still sitting in a cart**, and the queue never exceeds six bags. The crew keeps
+  up with sorting; the bottleneck is trips to the gate. That also explains why the
+  "veteran" bot profile scores *worse* than the "average" one — it hauls at six bags
+  instead of eight and spends the difference driving.
+
+### New coverage
+
+`tools\m7-tests.js` (150 assertions) exists entirely for working code that no assertion
+would have missed if it were deleted: all 24 domain events reaching a subscriber with a
+payload that resolves, the F3 developer overlay and the two `Game` methods no test had
+ever called, restart completeness for aircraft, keyboard-only operation, and the scanner
+card's body.
+
+`tools\_soak.js` and `tools\_invariants.js` fuzz the game — random keys, chaos (pause,
+blur, settings, dropped frames) and the real crew bot with a hand tremor — checking every
+invariant after every step. 17 shifts, 169 minutes of simulated play, zero uncaught
+errors and zero invariant violations.
+
 ## Milestone 6 — balance and hardening — 2026-08-20
 
 **119 assertions, 898 total.** The last Phase 1 milestone. Exit criterion: *all Phase 1

@@ -797,6 +797,10 @@ lines.push('--- Z. GDD §29 criteria that need people, not a test runner ---');
   open('Z2 "at least three external playtesters understand that the airport will not wait"');
   open('Z3 "at least two report a memorable unscripted mistake or recovery"');
   open('Z4 "repeated play produces improved organization or routing"');
+  // The fifth. §29's Design validation has four bullets, not three, and this suite is
+  // meant to be §29 bullet by bullet — so leaving it out silently undercounted what is
+  // actually open, in the one section whose whole job is to be honest about that.
+  open('Z5 "pressure comes from overlapping simple work, not confusing controls"');
   note('      Section D is the closest a program gets: it plays whole shifts through the');
   note('      real input path and shows a competent crew clearing most of the schedule');
   note('      and a careless one going backwards. It cannot tell you whether the game');

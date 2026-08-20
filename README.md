@@ -13,12 +13,12 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Milestone 6 — balance and hardening. 898 assertions green.
-Phase 1 is feature-complete.**
-Three flights, fifty bags, eight minutes. Bags arrive on a conveyor, get sorted into
-marked carts, hauled to a gate behind a tractor, and loaded into an aircraft hold — and
-the aircraft leave on the clock whether you are ready or not. The shift ends with a
-report telling you exactly what you managed, and a button to try again.
+**Current state: Phase 1 feature-complete, plus a hardening pass. 1085 assertions green
+across eight suites.**
+Three flights, thirty-four bags, eleven and a half minutes. Bags arrive on a conveyor, get
+sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
+hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
+with a report telling you exactly what you managed, and a button to try again.
 
 A competent crew now clears about three quarters of the shift and finishes in credit;
 a careless one goes backwards. That is the Milestone 6 balance pass, and every number
@@ -86,6 +86,10 @@ Driving:
 | Brake | `Space` |
 | Hitch the cart behind you, or drop the last one | `E` |
 | Get out | `F` |
+
+`X` gets you unstuck — a player, a tractor, or a whole train wedged in scenery. It is a
+local nudge out of the wall, not a teleport home, and it does nothing at all when nothing
+is stuck (GDD §24.3).
 
 Any time: `Esc` start / pause / resume (or close the settings panel) · `R` restart from
 the pause screen · `F3` developer overlay (`B` bounds · `G` grid · `[` `]` time scale ·
@@ -165,20 +169,22 @@ monetisation.
 | 3 | Sacred schedule — flight states, board, departures | **done** — 105 assertions |
 | 4 | Outcomes and pressure — scoring, report, replay | **done** — 113 assertions |
 | 5 | Onboarding and juice — audio, hints, accessibility | **done** — 179 assertions |
-| 6 | Balance and hardening | **done** — 119 assertions |
+| 6 | Balance and hardening | **done** — 156 assertions |
+| — | Hardening: four adversarial audits, and the coverage they exposed | **done** — 150 assertions |
 
 ### Phase 1 acceptance (GDD §29)
 
 `tools\m6-tests.js` is §29 made executable — one assertion per bullet, in the
 document's own order. Functional, UX and Quality all pass.
 
-**Four criteria are OPEN, and are reported that way rather than assumed green**, because
+**Five criteria are OPEN, and are reported that way rather than assumed green**, because
 no program can stand in for a person:
 
 - a first-time player completes the basic loop without reading a manual
 - at least three external playtesters understand that the airport will not wait
 - at least two report a memorable unscripted mistake or recovery
 - repeated play produces improved organization or routing
+- pressure comes from overlapping simple work, not confusing controls
 
 The closest a test gets is section D, which plays whole shifts with a bot driving the
 real input path. It shows a competent crew clearing 76% and finishing in credit, and a
@@ -237,6 +243,9 @@ through the real input path, three seeds each:
 | Distance per shift | 670 m walked, 1039 m driven |
 | 124 bags and three loaded carts | 0.079 ms per step — 210x frame-budget headroom |
 | Bags stranded out of reach | 0 |
+| Queue depth | peaks at 6 bags waiting, mean 1.3 |
+| Where missed bags end up | 90% still sitting in a cart, 10% loose on the floor |
+| Fuzzing | 17 shifts, 169 min simulated, 0 errors, 0 invariant violations |
 
 Milestone 5 — onboarding and juice:
 
@@ -244,7 +253,7 @@ Milestone 5 — onboarding and juice:
 |---|---|
 | A 200 s shift, run with live audio and with none | `describe()` snapshots identical to the byte |
 | The rail | 7 steps · 11 s on one step before the hint appears |
-| Schedule-pressure assist | Standard 8:07 · Unhurried 12:49 (measured), Relaxed between |
+| Schedule-pressure assist | multiplies the authored shift: Relaxed 1.15×, Unhurried 1.35× |
 | 600 live frames with audio wired in | 0.020 ms per frame against a 16.7 ms budget |
 
 ## Layout
@@ -266,9 +275,11 @@ src/
   ui/             hud.js · scannerCard.js · flightBoard.js · shiftReport.js
                   settings.js    volumes · reduced motion · text size · assist
   dev/            debugOverlay.js — F3, never player-facing
-tools/            serve · smoketest · test · shot · m0-m6 suites
+tools/            serve · smoketest · test · shot · m0-m7 suites
                   _bot.js        a crew that plays through the real input path
                   _balance.js    GDD §28.4 telemetry, printed rather than asserted
+                  _soak.js       fuzz: random keys, chaos, and a clumsy crew bot
+                  _invariants.js the sweep the soak and m6 section H both run
 docs/             screenshots
 ```
 
