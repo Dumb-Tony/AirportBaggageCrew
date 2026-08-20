@@ -13,13 +13,21 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Milestone 5 — onboarding and juice. 779 assertions green.**
+**Current state: Milestone 6 — balance and hardening. 898 assertions green.
+Phase 1 is feature-complete.**
 Three flights, fifty bags, eight minutes. Bags arrive on a conveyor, get sorted into
 marked carts, hauled to a gate behind a tractor, and loaded into an aircraft hold — and
 the aircraft leave on the clock whether you are ready or not. The shift ends with a
 report telling you exactly what you managed, and a button to try again.
 
-It now has sound, and it teaches itself. A seven-step rail walks you through the loop
+A competent crew now clears about three quarters of the shift and finishes in credit;
+a careless one goes backwards. That is the Milestone 6 balance pass, and every number
+behind it was measured by a bot playing through the real keyboard path rather than
+guessed.
+
+![The shift report at the end of a played shift](docs/m6-report.png)
+
+It has sound, and it teaches itself. A seven-step rail walks you through the loop
 **without ever stopping the clock** — the flights are already running while you learn to
 pick a bag up, because a tutorial that paused the airport would be teaching a lie about
 the only thing the game is about. Settings cover volumes, reduced motion, text size and a
@@ -108,7 +116,7 @@ suite into a scratch copy of the page, serves it, drives it in headless Chrome, 
 the dumped DOM. Exit 0 means green.
 
 ```bash
-tools\test.ps1 -Only m3
+tools\test.ps1 -Only m6
 ```
 
 Diagnostics, which measure rather than gate:
@@ -118,7 +126,14 @@ tools\smoketest.ps1 -Tests tools\_raf.js
 ```
 
 ```bash
-tools\shot.ps1 -Setup tools\_shot-m3.js -Out docs\m3-final-call.png
+tools\shot.ps1 -Setup tools\_shot-m6.js -Out docs\m6-report.png
+```
+
+And the balance telemetry — GDD §28.4's list, produced by a bot that plays the game
+through the real input path at three skill levels:
+
+```bash
+tools\smoketest.ps1 -Tests tools\_balance.js
 ```
 
 ---
@@ -150,7 +165,24 @@ monetisation.
 | 3 | Sacred schedule — flight states, board, departures | **done** — 105 assertions |
 | 4 | Outcomes and pressure — scoring, report, replay | **done** — 113 assertions |
 | 5 | Onboarding and juice — audio, hints, accessibility | **done** — 179 assertions |
-| 6 | Balance and hardening | next |
+| 6 | Balance and hardening | **done** — 119 assertions |
+
+### Phase 1 acceptance (GDD §29)
+
+`tools\m6-tests.js` is §29 made executable — one assertion per bullet, in the
+document's own order. Functional, UX and Quality all pass.
+
+**Four criteria are OPEN, and are reported that way rather than assumed green**, because
+no program can stand in for a person:
+
+- a first-time player completes the basic loop without reading a manual
+- at least three external playtesters understand that the airport will not wait
+- at least two report a memorable unscripted mistake or recovery
+- repeated play produces improved organization or routing
+
+The closest a test gets is section D, which plays whole shifts with a bot driving the
+real input path. It shows a competent crew clearing 76% and finishing in credit, and a
+careless one going backwards — but it cannot tell you whether the game *teaches* that.
 
 ## What the suites measure
 
@@ -192,6 +224,20 @@ Milestone 3 — the schedule:
 | Ten minutes of airport | simulates in ~2.5 s — about 240x real time |
 | Gate 1, used twice | AB221 clear at 195 s, SK307 taxis in at 201 s |
 
+Milestone 6 — balance and hardening. Every row below is a bot playing the real game
+through the real input path, three seeds each:
+
+| | |
+|---|---|
+| A competent crew | 76% of bags delivered, +1633 points |
+| A careless one | 30%, −2467 points |
+| Before the balance pass | 32% and −4000 points, on every seed, at every skill |
+| The authored shift | 34 bags across 3 flights, 11:32 |
+| Time to first bag aboard | 182 s |
+| Distance per shift | 670 m walked, 1039 m driven |
+| 124 bags and three loaded carts | 0.079 ms per step — 210x frame-budget headroom |
+| Bags stranded out of reach | 0 |
+
 Milestone 5 — onboarding and juice:
 
 | | |
@@ -220,7 +266,9 @@ src/
   ui/             hud.js · scannerCard.js · flightBoard.js · shiftReport.js
                   settings.js    volumes · reduced motion · text size · assist
   dev/            debugOverlay.js — F3, never player-facing
-tools/            serve · smoketest · test · shot · m0-m5 suites · diagnostics
+tools/            serve · smoketest · test · shot · m0-m6 suites
+                  _bot.js        a crew that plays through the real input path
+                  _balance.js    GDD §28.4 telemetry, printed rather than asserted
 docs/             screenshots
 ```
 
@@ -232,15 +280,20 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
 
 ---
 
-## Known limitations at Milestone 5
+## Known limitations at Milestone 6
 
-- **Nothing is balanced.** Spill thresholds, score values, bag counts and route lengths
-  are all first guesses. Milestone 6 is the balance pass, and the suites print the
-  numbers it will need.
-- **The exit criterion is not actually met yet.** Milestone 5 passes when *uncoached
-  playtesters complete the core loop*, and a test suite cannot recruit a playtester. What
-  is proven is that the rail covers every verb, always terminates, and never deadlocks on
-  play order. Whether it teaches is a question for a human who has not seen the game.
+- **Nobody has playtested it.** Four of GDD §29's criteria need external players and are
+  reported OPEN by the m6 suite rather than assumed green — see *Phase 1 acceptance*
+  above. Everything a program can check does pass; whether the game *teaches* what it
+  needs to is the one thing still genuinely unknown, and it is the top of the list.
+- **The balance is one bot's opinion.** 76% for a competent crew is measured, but it is
+  measured against a policy I wrote: park the train on the hold door, fill one cart at
+  the belt, one flight at a time. A human who plays differently will get different
+  numbers, and the "veteran" profile already does worse than the "average" one because
+  hauling at six bags costs more trips than it saves.
+- **Spill tuning is still provisional.** A full-lock circle at top speed empties a cart.
+  The bot sheds about four bags a shift and takes 23 corners above the safe speed, so it
+  is not free — but nobody has decided whether that is the right price.
 - **Audio is synthesised, not designed.** Every cue is an oscillator or filtered noise.
   It is legible and it escalates, but it is a placeholder for a sound pass, and the
   mixing between the three beds and the one-shots has not been balanced against anything.
@@ -249,10 +302,12 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   is a UI away rather than a rewrite.
 - **Arrivals do not exist.** Every flight is a departure. GDD §4.3 arrivals and §4.4
   connections are explicitly post-MVP.
-- **The sort room has a lot of empty floor** now the cart bays moved north. Level layout
-  is a Milestone 6 question.
-- **Spill tuning is provisional.** A full-lock circle at top speed empties a cart, which
-  is probably too harsh even for a deliberate stunt. Milestone 6 owns the balance pass.
+- **The sort room has a lot of empty floor** now the cart bays have moved north, and the
+  bays themselves are far enough from the belt drop that sorting is 61% of the shift.
+  Level layout would be the next real lever on pacing.
+- **Carts can overlap.** Two parked on the same square metre both answer to E, and the
+  nearest one wins. It is never fatal — you can step round — but it is confusing, and it
+  is the single most common way the bot lost time before it learned to circle.
 - **Carts are placed, not driven.** A towed cart is positioned by the drawbar constraint
   and then pushed out of any wall it lands in, rather than colliding properly. It cannot
   end up inside geometry — the suite checks that over a full run — but a cart taking a

@@ -57,6 +57,26 @@ Dev-wide catalog of what already exists and where to copy it from.
   600 live frames with audio wired in cost 0.020 ms each; the assist takes the shift from
   8:07 to 12:49 without touching a verb. **179 assertions, 779 total** +
   `docs/m5-first-minute.png`, `docs/m5-settings.png`.
+- 2026-08-20 — **M6 DONE. PHASE 1 FEATURE-COMPLETE.** Balance and hardening.
+  `tools/_bot.js` is a crew that PLAYS — walking, placarding, hitching, driving, loading
+  holds, all through `input._debugPress` — and `tools/_balance.js` prints GDD §28.4's
+  telemetry from it. It found the game unwinnable: 32% delivered and a five-figure
+  deficit on every seed at every skill. Three fixes (a loaded cart in reach now beats
+  the hold when TAKING a bag; 50 bags → 34; every window +45%, shift 8:07 → 11:32) took
+  a competent crew to **76% and +1633 points**, a careless one to 30% and −2467.
+  `tools/m6-tests.js` is GDD §29 made executable, with four criteria reported OPEN
+  because they need external playtesters. Measured: 124 bags and three loaded carts cost
+  0.079 ms per step, 210x frame-budget headroom; zero dead ends and zero unreachable
+  bags across nine played shifts. **119 assertions, 898 total** + `docs/m6-report.png`.
+
+## Phase 1 is done. What is actually left
+
+GDD §29's Functional, UX and Quality criteria all pass (`tools/m6-tests.js`). FOUR
+CRITERIA ARE OPEN and cannot be closed by any program — they need external players: a
+first-timer completing the loop unaided, three playtesters understanding the airport
+will not wait, two reporting a memorable mistake, and repeated play improving routing.
+Do not call Phase 1 complete on a green suite alone; the suite says so itself, in
+section Z, and the README repeats it.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -216,6 +236,28 @@ Dev-wide catalog of what already exists and where to copy it from.
 - **Reduced motion is TWO switches, not one.** `renderer.fx.enabled` kills the particle
   system and `renderer.reducedMotion` holds the tractor beacon and the aircraft strobe
   steady. A dimmed strobe is still a strobe, so neither may be implemented as a fade.
+- **`CrewBot` (`tools/_bot.js`) MUST NEVER WRITE TO STATE.** Reading is fine — a player
+  can see the ramp. The moment it assigns a position or moves a bag it stops being a
+  measurement and becomes a second, worse implementation of the game. Every number in
+  the balance report rests on that line holding.
+- **A bot that presses a verb every frame acts SIXTY TIMES A SECOND.** `wasPressed` is
+  an edge per simulation step, so an unthrottled bot put a ten-bag cart into a hold in
+  under a fifth of a second and the unload leg vanished from the telemetry. That is the
+  instrument lying, not a finding. `VERB_GAP_MS` is 145 ms — brisk for a person — and it
+  applies to E, F and Q alike.
+- **The shift end is DERIVED** (`Game._authorShift`: last departure + pushback + wrap).
+  `CONFIG.shift.durationMs` is a FALLBACK, not the length. Six suites silently truncated
+  at ten minutes when M6 stretched the schedule to 11:32; a test that means "the whole
+  shift" must read `state.shift.endTimeMs`.
+- **A cart parked IN the hold volume is the fast way to work**, and that is deliberate.
+  Taking a bag prefers a loaded cart in reach over the hold manifest, so a well-parked
+  train needs no walking between the two. Reversing that priority puts 8.9 s per bag
+  back and makes the shift unfinishable — it is the single change that turned a losing
+  game into a winnable one.
+- **`hitchCandidate` measures from the TAIL of the train, not from the tractor.** A
+  tractor already towing something can never bring a second cart into range without
+  ramming the first: drop what you have first. It is also why hitching needs no
+  reversing at all — drive PAST the cart and it is behind you, in range.
 - **`state.settings` and `game.settings` are different objects.** `state.settings` is the
   debug-overlay's `{ showGrid }`; `game.settings` is the player's saved preferences. The
   collision is pre-existing and harmless, but read the receiver before assuming.
@@ -262,6 +304,21 @@ Dev-wide catalog of what already exists and where to copy it from.
   possible at all. The catalog entry existed the whole time. This is exactly the waste
   rule 3 exists to stop, and knowing the rule was not enough — the lookup has to happen
   before the first line, not before the commit.
+- ⚠ **A BOT THAT STANDS STILL IS USUALLY IN A PHASE FLIP-FLOP, not stuck on geometry.**
+  Two states that each bounce to the other press no keys at all, so the crew simply
+  stops. It happened three separate ways in `_bot.js` — carrying a bag into a phase that
+  refuses to run while carrying, sorting while still sitting in the tractor, and
+  re-deciding a multi-press action every frame off its own intermediate state. The tell
+  is `speed 0` with a sensible-looking target; the fix is to finish what is in your hands
+  before changing phase.
+- **Instrument the stall; do not reason about it.** Four rounds of deduction on the
+  73%-idle bot got nowhere. Adding `speed`, `rot`, the aim point and the cart's hitch
+  state to the dead-end record found it in one run. `speed 0` says control problem,
+  `speed 7` into a wall says geometry, and `hitched=true clear=1800` says the branch runs
+  every frame and its precondition never clears.
+- **Standing still is not the same as being stuck.** Loitering at an empty belt and
+  pressing F repeatedly in one spot are both progress. Counting them as stalls buried
+  seven real dead ends under 517 false ones.
 - **Never assert a raw event COUNT either.** m5 E4 first demanded "more than 100 events
   in 60 s" and measured 13 — the same mistake as assuming when a seeded bag spawns, worn
   as a magnitude. Count the KINDS of event the test actually depends on, and assert those
@@ -391,11 +448,13 @@ second repo, no `dist/`. Pages takes ~30-60 s to rebuild.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (779 assertions), exit 0 = green
-tools\test.ps1 -Only m5     # one suite
+tools\test.ps1              # all suites (898 assertions), exit 0 = green
+tools\test.ps1 -Only m6     # one suite
 
 # diagnostics (not suites — they measure, they don't gate):
-tools\smoketest.ps1 -Tests tools\_raf.js     # is rAF usable under the harness
+tools\smoketest.ps1 -Tests tools\_raf.js      # is rAF usable under the harness
+tools\smoketest.ps1 -Tests tools\_balance.js  # GDD §28.4 telemetry, from a bot that plays
+tools\shot.ps1 -Setup tools\_shot-m6.js -Out docs\m6-report.png
 tools\shot.ps1 -Setup tools\_shot-m5.js -Out docs\m5-first-minute.png
 tools\shot.ps1 -Setup tools\_shot-m5-settings.js -Out docs\m5-settings.png
 tools\shot.ps1 -Setup tools\_shot-m3.js -Out docs\m3-final-call.png

@@ -1,5 +1,82 @@
 # Changelog
 
+## Milestone 6 — balance and hardening — 2026-08-20
+
+**119 assertions, 898 total.** The last Phase 1 milestone. Exit criterion: *all Phase 1
+acceptance criteria pass.*
+
+### The instrument
+
+Balance needs evidence about what a person can actually get done in eight minutes, and
+the M3 bot proved the arithmetic closes by **teleporting** bags into holds — which
+measures the schedule, not the game. `tools\_bot.js` is a crew that plays: it walks,
+grabs, sets placards with F, climbs into the tractor, hitches, drives out through the
+door, parks at the aircraft and carries bags into the hold one at a time, all through
+`input._debugPress` and the real contextual verbs. It never writes to state.
+
+`tools\_balance.js` runs it at three skill levels over three seeds and prints GDD §28.4's
+telemetry list. Getting it to play at all took seven deadlocks out — a tractor cannot yaw
+at a standstill; E while driving re-hitches the cart you just dropped; changing phase
+while holding a bag flip-flops between two phases that each bounce to the other; F
+*cycles* the placard so the second flight takes two presses and reads as the first in
+between. Each one is written up in the commit and in `CLAUDE.md`.
+
+### What it found
+
+Nobody finished. Best run 40% of bags delivered, average 32%, and **every single run of
+every seed scored negative.** The arithmetic said why: 50 bags at ~15 s of handling each
+plus five round trips is about sixteen minutes of work in an eight-minute shift.
+
+### What changed
+
+**A loaded cart in reach now beats the hold when taking a bag.** The cart-to-hold shuttle
+was 8.9 s per bag, nearly all of it walking, because a player standing at their cart
+*inside* the hold volume pulled bags back out of the aircraft instead of taking the next
+one off the cart. Park the train alongside the door and the shuttle is two keypresses.
+Parking well is the skill the stand geometry was always asking for; emptying a hold still
+works, by stepping away from the cart.
+
+**Bag counts 16/16/18 → 11/11/12**, and every flight window stretched about 45%. The
+shift end is derived from the last departure, so it moved 8:07 → 11:32 — inside the 8–12
+minutes GDD §3.3 asks for.
+
+**The bot now presses verbs at a human rate** (145 ms). `wasPressed` is an edge per
+simulation step, so pressing every frame acts sixty times a second: a ten-bag cart went
+into a hold in under a fifth of a second and the unload leg vanished from the telemetry.
+That was the instrument lying, not a finding.
+
+Measured after, three seeds each:
+
+| | delivered | points |
+|---|---|---|
+| novice | 30% | −2467 |
+| average | **76%** | **+1633** |
+| veteran | 70% | +1083 |
+
+All three flights 73–82%. Zero dead ends, zero unreachable bags.
+
+![The shift report at the end of a played shift](docs/m6-report.png)
+
+### The acceptance suite
+
+`tools\m6-tests.js` is **GDD §29 made executable** — one assertion per bullet, in the
+document's own order. Sections A and B walk the Functional list, C the UX list, D and E
+the Quality list (including the 100-bag profile and a sweep for anything wedged in the
+scenery), F reproduces §28.2's simulation tests verbatim, and G checks the live build
+fetches nothing and feature-detects everything it needs.
+
+Section **Z prints four criteria as OPEN rather than faking them green**: they need
+external playtesters, and no program can stand in for one. That is the honest state of
+the milestone.
+
+### The suites that went red
+
+Six of them, and every one had an **expired premise** rather than a broken behaviour.
+They skipped `CONFIG.shift.durationMs`, drove 36,000 steps, or looped 600 ticks — all of
+them "ten minutes", none of them the shift, whose end is *derived*. Two more assumed
+*when* a seeded bag spawns. One demanded every SK307 priority bag land in the late half
+of its window, which a 12-bag flight cannot satisfy.
+
 ## Milestone 5 — onboarding and juice — 2026-08-20
 
 **179 assertions, 779 total.** Exit criterion: *uncoached playtesters complete the core
