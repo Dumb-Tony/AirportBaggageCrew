@@ -3,9 +3,15 @@
 > Simple physical work becomes hilarious logistical panic, because the airport keeps
 > operating whether the players are ready or not.
 
+**▶ Play it: https://dumb-tony.github.io/AirportBaggageCrew/**
+
 A chaotic co-op game about an underqualified ground-handling crew. Built from
 [`GDD.md`](GDD.md) — the Master GDD is the authority on this project; this README covers
 how to run it and what is actually built.
+
+The live build is GitHub Pages serving `main` at root, so **every push republishes it**.
+There is no build step: the game is plain ES modules and static files, and Pages already
+serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Milestone 2 — transport. 382 assertions green.**
 Bags arrive on a conveyor, carry identity, and can be picked up, carried, thrown,

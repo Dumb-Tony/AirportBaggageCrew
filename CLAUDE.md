@@ -199,6 +199,25 @@ Dev-wide catalog of what already exists and where to copy it from.
   "correct" reads like a typo; any loose bag on a live movement area is the hazard.
   Confirm at M4.
 
+## Publishing — do this every milestone
+
+**Live: https://dumb-tony.github.io/AirportBaggageCrew/**
+
+GitHub Pages serves `main` at root, so a `git push` IS the deploy — no build step, no
+second repo, no `dist/`. Pages takes ~30-60 s to rebuild.
+
+**After every update, post that link in the chat.** The user asked for it explicitly
+(2026-08-19) and it is the only way they can actually play what was just built.
+
+- `.nojekyll` is in the repo root on purpose. Jekyll silently drops paths beginning with
+  an underscore, and `tools/_shot-*.js` and `tools/_raf.js` do.
+- Everything is relative-path. Do not introduce a root-absolute `/src/...` URL in
+  shipping code — the site lives under `/AirportBaggageCrew/`, not at the domain root.
+  (The suites use `fetch('/' + f)`, which is fine: they only ever run against the local
+  harness server.)
+- Verify after pushing rather than assuming:
+  `curl -sSI https://dumb-tony.github.io/AirportBaggageCrew/src/main.js`
+
 ## Run it
 
 ```
