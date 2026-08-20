@@ -30,6 +30,7 @@ import { FLIGHT_DEFS, gateConflicts, standWindow } from '../src/data/flights.js'
 import { WALLS, BOUNDS, ANCHORS, STANDS, rectContains } from '../src/data/airport.js';
 import { stateAt, isHoldOpen } from '../src/systems/flightSchedule.js';
 import { playShift, SKILLS, CrewBot } from './_bot.js';
+import { fuzzShift, guidedFuzz, restartTorture } from './_invariants.js';
 
 /* ── harness ─────────────────────────────────────────────────────────────── */
 const lines = [];
@@ -575,6 +576,53 @@ lines.push('--- G. the live build ---');
   eq('G7 containment held on the live page', assertContainment(abc.game.state).length, 0);
 }
 
+/* ── H. fuzz: the invariants under input nobody sane would produce ───────── */
+/* GDD §29 asks that a shift run without uncaught errors and without duplicating or
+ * deleting a bag. `CrewBot` cannot earn those sentences on its own — it only ever presses
+ * keys that make sense. This mashes the keyboard and checks EVERY invariant after EVERY
+ * step. It is a short version of `tools\_soak.js`; run that one when changing the
+ * simulation, and keep this one here so a regression is caught by the suite. */
+function sectionH() {
+lines.push('--- H. fuzz: random input against every invariant, every step ---');
+
+  // Two whole shifts of pure mashing. Delivers nothing — that is the point; what it
+  // exercises is every verb fired in every wrong order and place.
+  for (const seed of [4, 2026]) {
+    const r = fuzzShift(seed);
+    ok(`H1.${seed} a fuzzed shift raises no uncaught error`, !r.threw,
+      r.threw && String(r.threw).split('\n')[0]);
+    eq(`H2.${seed} and violates no invariant`, r.violations.length, 0,
+      JSON.stringify(r.violations.slice(0, 2)));
+    note(`      seed ${seed}: ${(r.simMs / 1000).toFixed(0)} s of random input, ` +
+         `${r.bags} bags, ${r.delivered} delivered`);
+  }
+
+  // Chaos: pausing, focus loss, settings changes and dropped frames on top.
+  const c = fuzzShift(99, { chaos: true, frames: 12000 });
+  ok('H3 chaos — pause, blur, settings and frame jitter — raises no error', !c.threw,
+    c.threw && String(c.threw).split('\n')[0]);
+  eq('H4 and violates no invariant', c.violations.length, 0,
+    JSON.stringify(c.violations.slice(0, 2)));
+
+  // Guided: the real bot with a hand tremor, so the fuzz reaches the aircraft and makes
+  // mistakes THERE — loading, misrouting, taking bags back out, hold closing on a cart.
+  const gz = guidedFuzz(11, 0.02);
+  ok('H5 a clumsy crew still raises no error', !gz.threw,
+    gz.threw && String(gz.threw).split('\n')[0]);
+  eq('H6 and still violates no invariant', gz.violations.length, 0,
+    JSON.stringify(gz.violations.slice(0, 2)));
+  ok('H7 and it really did reach the aircraft', gz.delivered + gz.misrouted > 0,
+    `${gz.delivered} delivered, ${gz.misrouted} misrouted`);
+  note(`      clumsy crew: ${gz.delivered} delivered, ${gz.misrouted} misrouted, ` +
+       `${gz.nudges} stray keypresses, ${gz.points} points`);
+
+  // "Restart resets every entity and timer cleanly" — hammered, not sampled.
+  const rt = restartTorture(31337, 8);
+  ok('H8 eight restarts mid-shift raise no error', !rt.threw,
+    rt.threw && String(rt.threw).split('\n')[0]);
+  eq('H9 and leave nothing behind', rt.problems.length, 0, JSON.stringify(rt.problems.slice(0, 3)));
+}
+
 /* ── Z. what a suite cannot close ────────────────────────────────────────── */
 function sectionZ() {
 lines.push('--- Z. GDD §29 criteria that need people, not a test runner ---');
@@ -592,7 +640,7 @@ lines.push('--- Z. GDD §29 criteria that need people, not a test runner ---');
 (async () => {
   const sections = [
     ['A', sectionA], ['B', sectionB], ['C', sectionC], ['D', sectionD],
-    ['E', sectionE], ['F', sectionF], ['G', sectionG], ['Z', sectionZ],
+    ['E', sectionE], ['F', sectionF], ['H', sectionH], ['G', sectionG], ['Z', sectionZ],
   ];
   for (const [name, fn] of sections) {
     emit(`RUNNING section ${name}...`);
