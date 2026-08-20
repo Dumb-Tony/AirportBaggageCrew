@@ -13,13 +13,19 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Milestone 3 — the sacred schedule. 487 assertions green.**
-Three flights, fifty bags, ten minutes. Bags arrive on a conveyor, get sorted into
+**Current state: Milestone 4 — outcomes and pressure. 600 assertions green.**
+Three flights, fifty bags, eight minutes. Bags arrive on a conveyor, get sorted into
 marked carts, hauled to a gate behind a tractor, and loaded into an aircraft hold — and
-the aircraft leave on the clock whether you are ready or not. Nothing is scored yet;
-that is Milestone 4.
+the aircraft leave on the clock whether you are ready or not. The shift ends with a
+report telling you exactly what you managed, and a button to try again.
 
-![AB221 on final bag call at gate 1, hold open, a loaded cart alongside](docs/m3-final-call.png)
+![AB221 on final bag call at gate 1, hold open, a loaded cart alongside](docs/m5-oblique.png)
+
+The view is **oblique 2.5D** — still top-down Canvas 2D, but the ground is foreshortened
+and everything on it stands up, which GDD §19.1 permits ("top-down or 2.5D"). It replaced
+a straight-down view that read as a floorplan.
+
+![Sorting off the belt into the marked cart bays](docs/m5-oblique-sortroom.png)
 
 ---
 
@@ -124,8 +130,8 @@ monetisation.
 | 1 | The bag feels good | **done** — 125 assertions |
 | 2 | Transport — carts, hitching, the tractor | **done** — 140 assertions |
 | 3 | Sacred schedule — flight states, board, departures | **done** — 105 assertions |
-| 4 | Outcomes and pressure — scoring, report, replay | next |
-| 5 | Onboarding and juice — audio, hints, accessibility | |
+| 4 | Outcomes and pressure — scoring, report, replay | **done** — 113 assertions |
+| 5 | Onboarding and juice — audio, hints, accessibility | next |
 | 6 | Balance and hardening | |
 
 ## What the suites measure
@@ -199,16 +205,22 @@ location) and `baggageFlow.js` (spawning and loose-bag movement).
 
 ---
 
-## Known limitations at Milestone 3
+## Known limitations at Milestone 4
 
-- **Nothing is scored and there is no report.** Departures classify every bag as correct,
-  misrouted or missed, and the counts are right — but no points are awarded and the shift
-  ends without telling you how you did. That is Milestone 4, and it is the reason a
-  perfect shift and a disastrous one currently feel the same at the end.
-- **The shift clock runs past its end.** The end-of-shift transition lands with Milestone
-  4; today the clock keeps counting and `shiftRemainingMs` reads 0.
+- **No audio at all.** GDD §18 wants a scanner beep, a wrong-buzz and escalating flight
+  announcements; every one of those cues is visual-only until Milestone 5. That is the
+  single biggest gap in the game right now.
+- **No onboarding.** GDD §16.5 asks for a playable first minute that teaches the loop.
+  Today the title card explains it in prose and then drops you into a live shift.
+- **Nothing is balanced.** Spill thresholds, score values, bag counts and route lengths
+  are all first guesses. Milestone 6 is the balance pass, and the suites print the
+  numbers it will need.
 - **Arrivals do not exist.** Every flight is a departure. GDD §4.3 arrivals and §4.4
   connections are explicitly post-MVP.
+- **A towed cart can clip a wall for a frame.** It is positioned by the drawbar
+  constraint and then pushed out, rather than colliding properly.
+- **The sort room has a lot of empty floor** now the cart bays moved north. Level layout
+  is a Milestone 6 question.
 - **Spill tuning is provisional.** A full-lock circle at top speed empties a cart, which
   is probably too harsh even for a deliberate stunt. Milestone 6 owns the balance pass.
 - **Carts are placed, not driven.** A towed cart is positioned by the drawbar constraint

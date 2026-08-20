@@ -40,6 +40,14 @@ Dev-wide catalog of what already exists and where to copy it from.
   Measured: a no-input shift departs all 3 flights and classifies all 50 bags; a
   scripted bot delivers 50 of 50; a step of the whole airport costs 0.07 ms.
   **105 assertions, 487 total** + `docs/m3-final-call.png`.
+- 2026-08-19 — **M4 DONE.** Outcomes and pressure. `scoring.js` on GDD §11.1's values, a
+  pull pass that cannot double-count, a derived shift end (8:07, no dead ramp time), the
+  shift report with §11.2 metrics and §11.3 odd statistics, replay, and `save.js` for the
+  best shift. Measured: a worked shift 6100 points at 50/50; an untouched one −7500 at
+  0/50. **113 assertions, 600 total.**
+- 2026-08-19 — **OBLIQUE 2.5D.** The presentation pass, on a playtest note that the
+  straight-down view read as "dot on the map". See "The look" below.
+  `docs/m5-oblique.png`, `docs/m5-oblique-sortroom.png`.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -196,6 +204,14 @@ Dev-wide catalog of what already exists and where to copy it from.
   the pool is provably much larger than the count. `buildBagSchedule` picked 4 priority
   bags from a 6-wide window that way; one edit to the twist numbers would have made it
   spin forever. Shuffle a candidate pool and slice instead.
+- ⚠ **OTHER PROJECTS ON THIS MACHINE RUN THIS SAME HARNESS.** SmallTownEmergencyServices
+  and TowBros were copied from here, so they have the same scratch filenames and compete
+  for the same ports. A readiness probe that only checks for a 200 WILL eventually attach
+  to another game's server — it did, and put a screenshot of Small Town Emergency
+  Services into `docs/` as if it were this game. `tools\_serve-mine.ps1` stamps the
+  scratch file with a GUID and refuses any port whose response does not contain it. Any
+  new tool that starts a server must go through it. A hijacked TEST run would have
+  reported another game's results as ours.
 - **Bash heredocs here break on apostrophes** — the command is wrapped in single quotes,
   so prose files (README, CHANGELOG, this file) need the Write tool, not `cat <<EOF`.
   There is also no `python`/`python3` on this box; `sed`, `perl` and the Edit tool are
@@ -240,6 +256,30 @@ Dev-wide catalog of what already exists and where to copy it from.
   "correct" reads like a typo; any loose bag on a live movement area is the hazard.
   Confirm at M4.
 
+## The look: oblique 2.5D (2026-08-19)
+
+Straight-down read as a floorplan — the user said so. GDD §19.1 permits "top-down **or**
+2.5D", so this is inside the brief; only moving away from top-down Canvas 2D needs the
+§31.5 sign-off, and the camera has not moved.
+
+- **Two passes, and they must not be mixed.** `camera.applyGround()` for anything lying
+  flat (floor, markings, footprints, shadows) — foreshortened by `CONFIG.render.groundSquash`.
+  `camera.beginUpright(ctx, x, y)` for anything standing — unsquashed, origin at the
+  base, height going to −y. **Never draw text or a circle on the ground transform**; it
+  will be squashed with it.
+- **Depth-sort by base y.** `_collect()` fills a reused array and it is sorted every
+  frame. A new entity type that stands up must be added there or it will draw at the
+  wrong depth.
+- **Extrude by slices, translating BEFORE rotating.** Sweeping a rotated footprint up the
+  screen is not a shape canvas will give you. Translate-then-rotate keeps the extrusion
+  screen-vertical; rotate-then-translate tilts it with the object and looks broken.
+- **`viewWidthM` is 46, not 62.** Foreshortening fits MORE world into the same pixels
+  vertically, so keeping the old width made everything read smaller — the opposite of
+  the point. Changing the squash means re-checking this number.
+- **The drawn fuselage is 1.9 m, not the real 3.2 m.** At true height it was a
+  featureless wall that buried its own wings and most of the stand. Heights in `H` are
+  presentation only; none of them is collision.
+
 ## Publishing — do this every milestone
 
 **Live: https://dumb-tony.github.io/AirportBaggageCrew/**
@@ -263,8 +303,8 @@ second repo, no `dist/`. Pages takes ~30-60 s to rebuild.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (487 assertions), exit 0 = green
-tools\test.ps1 -Only m3     # one suite
+tools\test.ps1              # all suites (600 assertions), exit 0 = green
+tools\test.ps1 -Only m4     # one suite
 
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js     # is rAF usable under the harness

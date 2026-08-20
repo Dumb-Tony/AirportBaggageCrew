@@ -1,5 +1,78 @@
 # Changelog
 
+## Milestone 4 — outcomes and pressure — 2026-08-19
+
+**Exit criterion: full acceptance tests for all outcome paths pass. Met.**
+113 new assertions, 600 total (`tools\test.ps1`).
+
+Built:
+
+- **`systems/scoring.js`** on GDD §11.1's values verbatim: +100 a correct bag, +50 more
+  if it was priority, −250 for the wrong aircraft, −150 for a miss, plus a completion
+  bonus for a flight that got everything. The ordering §11.1 asks for is preserved — a
+  wrong destination costs more than a simple miss.
+- Points are awarded **once, at departure**, by a PULL pass over flights that have
+  evaluated but not been scored. Idempotent and order-independent, so it cannot
+  double-count. Deliberately no running per-load score: a bag can be taken back out of a
+  hold before closure, and a number that lies for twenty seconds is worse than none.
+- **The shift ends** a wrap-up after the last aircraft is clear, derived rather than
+  authored — the hardcoded ten minutes was leaving two minutes of empty ramp. It lands
+  at 8:07, inside the 8–12 minutes GDD §3.3 asks for. Once ended, nothing moves.
+- **`ui/shiftReport.js`**: GDD §11.2 service metrics, a per-flight breakdown, two to four
+  odd statistics per §11.3, and a replay button. The verdict line is never cruel about a
+  bad shift — GDD §10.4 wants a messy shift to still feel survivable.
+- **`systems/save.js`** keeps the best shift per GDD §23.1. Shape copied from
+  TheBenefactors' `SaveSystem`; its slots, migrations and whole-state snapshots dropped,
+  because this stores one small record. Storage that refuses is survived silently.
+
+Measured: a worked shift scores 6100 with 50/50 on time and 3 perfect flights; an
+untouched one scores −7500 with 0/50.
+
+Fixed: `evaluateFlight` walked `expectedBagIds`, so a bag that reached a flight by any
+route other than the conveyor finished the shift still marked `active` — classified by
+nothing. It walks ownership now.
+
+---
+
+## Oblique 2.5D — 2026-08-19
+
+Playtest note: *"not sure how I feel about the completely top down, dot on the map kinda
+look."* Fair — it read as a floorplan. GDD §19.1 permits "top-down **or 2.5D**", so this
+is inside the brief rather than the §31.5 presentation change that needs sign-off.
+
+The renderer now runs two passes: **the ground**, foreshortened vertically by 0.75 so
+floors and markings recede; and **things that stand up**, drawn upright at their
+foreshortened base with height going up the screen and depth-sorted by base y. Text and
+circles are never drawn on the ground transform — they would be squashed with it.
+Rotatable boxes are extruded in slices, translating *before* rotating so the extrusion
+stays screen-vertical rather than tilting with the object.
+
+The player is a person with a hard hat and hi-vis rather than a disc with a dot. Bags are
+boxes with visible sides, carts have a bed with thickness, the aircraft stands over its
+own wings.
+
+Two numbers moved with it, both for reasons worth keeping:
+
+- **viewWidthM 62 → 46.** Foreshortening fits *more* world into the same pixels
+  vertically, so keeping the old width made everything read smaller — the opposite of the
+  point. A bag is now 25 px and a person 60 px tall.
+- **The drawn fuselage is 1.9 m, not its real 3.2 m.** At true height it was a
+  featureless white wall that buried its own wings and most of the stand.
+
+### And a harness bug that produced confidently wrong evidence
+
+`shot.ps1` and `smoketest.ps1` checked only "did something answer 200 on this port".
+Other projects on this machine run the same tooling with the same scratch filenames —
+SmallTownEmergencyServices and TowBros were both copied from here — so the probe attached
+to **another game's server** and wrote a screenshot of Small Town Emergency Services into
+`docs/` as if it were this game. It fails silently.
+
+`tools/_serve-mine.ps1` now stamps the scratch file with a GUID and refuses any port
+whose response does not contain that exact stamp, walking a range until it finds one
+serving *this* project. A test run hijacked the same way would have reported another
+game's results as ours.
+
+
 ## Milestone 3 — the sacred schedule — 2026-08-19
 
 **Exit criterion: a no-input shift completes deterministically. Met.**
