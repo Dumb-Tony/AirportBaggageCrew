@@ -24,9 +24,13 @@ import { BOUNDS, WORLD, ANCHORS } from './data/airport.js';
 import { buildBagSchedule } from './data/flights.js';
 import { createPlayer, stepPlayer } from './entities/player.js';
 import { createConveyor, stepConveyor } from './entities/conveyor.js';
-import { spawnDueBags, stepBags, rebuildGrid } from './systems/baggageFlow.js';
+import { spawnDueBags, stepBags, rebuildGrid, syncCartBagPositions, absorbIntoCarts }
+  from './systems/baggageFlow.js';
 import { stepInteraction } from './systems/interaction.js';
 import { countByLocation } from './systems/containment.js';
+import { createCart } from './entities/cart.js';
+import { createTractor, stepTractor } from './entities/tractor.js';
+import { updateTrain, trainOf } from './systems/hitching.js';
 
 export const MODES = Object.freeze({
   TITLE: 'title',
@@ -69,8 +73,17 @@ export function createInitialState(seed, seedLabel) {
 
     // Populated by their own milestones. Present now so every system can assume the
     // keys exist and no code has to defend against `undefined` containers.
-    cartsById: {},
-    vehiclesById: {},
+    // Two carts parked on their marked bays and one spare, plus the tractor waiting
+    // outside the sort-room door, lined up on it.
+    cartsById: {
+      cart_1: createCart('cart_1', ANCHORS.cartBay1.x, ANCHORS.cartBay1.y, 0),
+      cart_2: createCart('cart_2', ANCHORS.cartBay2.x, ANCHORS.cartBay2.y, 0),
+      cart_3: createCart('cart_3', ANCHORS.cartPark.x, ANCHORS.cartPark.y, 0),
+    },
+    vehiclesById: {
+      tractor_1: createTractor('tractor_1', ANCHORS.tractorPark.x, ANCHORS.tractorPark.y, Math.PI),
+    },
+
     aircraftById: {},
     flightsById: {},
 
@@ -214,13 +227,25 @@ export class Game {
 
     spawnDueBags(this.state, this.rng.bags, simTimeMs, this.bus);
     stepConveyor(this.state, dt, this.bus, simTimeMs, this.rng.sim);
+
+    // Vehicles before the player, because a driving player is positioned FROM the
+    // tractor. Trains are placed by constraint straight after their tractor moves, and
+    // their load is pinned to them immediately, so a cart and its bags can never be
+    // rendered a step apart.
+    for (const v of Object.values(this.state.vehiclesById)) {
+      if (v.driverId) stepTractor(this.state, v, dt, input);
+      updateTrain(this.state, v, dt, this.bus, simTimeMs);
+    }
+    syncCartBagPositions(this.state);
+
     rebuildGrid(this.state, this.grid);
     stepPlayer(this.state, dt, input);
     stepInteraction(this.state, dt, input, this.bus, simTimeMs, this.grid);
     stepBags(this.state, dt, this.grid);
+    absorbIntoCarts(this.state, simTimeMs, this.bus);
 
     // Milestone order, once these exist:
-    //   vehicles.step -> flightSchedule.step -> scoring.step -> announcements.step
+    //   flightSchedule.step -> scoring.step -> announcements.step
     // flightSchedule reads ONLY simTimeMs. It must never ask whether the player is
     // ready. GDD §31.1.7: never make a flight wait for task completion.
   }
@@ -260,8 +285,21 @@ export class Game {
       spawned: this.state.shift.spawned,
       bags: Object.keys(this.state.bagsById).length,
       byLocation: countByLocation(this.state),
-      player: { x: round4(p.x), y: round4(p.y), carrying: p.carryingBagId },
+      player: { x: round4(p.x), y: round4(p.y), carrying: p.carryingBagId, driving: p.drivingId },
       delivered: this.state.world.conveyor.delivered,
+      // Carts and the tractor are part of the determinism contract too: a train that
+      // drifts by a millimetre between two runs of one seed is a bug, and this is where
+      // it shows up.
+      carts: Object.values(this.state.cartsById).map((c) => ({
+        id: c.id, x: round4(c.x), y: round4(c.y), rot: round4(c.rot),
+        bags: c.bagIds.length, placard: c.placardFlightId,
+        hitchedTo: c.hitchedToId, stability: round4(c.stability), spills: c.spills,
+      })),
+      vehicles: Object.values(this.state.vehiclesById).map((v) => ({
+        id: v.id, x: round4(v.x), y: round4(v.y), rot: round4(v.rot),
+        speed: round4(v.speed), driver: v.driverId,
+        train: trainOf(this.state, v), odo: round4(v.odometerM),
+      })),
     };
   }
 }

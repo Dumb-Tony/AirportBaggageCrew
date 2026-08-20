@@ -373,7 +373,7 @@ lines.push('--- F. the conveyor (GDD 20.2, pillar 1) ---');
   const counts = countByLocation(g2.state);
   ok('F8 delivered bags end up on the floor, not deleted', counts.floor > 30, `${counts.floor}`);
   eq('F9 nothing was lost between the belt and the floor',
-     counts.floor + counts.conveyor + counts.carried, Object.keys(g2.state.bagsById).length);
+     Object.values(counts).reduce((a, b) => a + b, 0), Object.keys(g2.state.bagsById).length);
 
   const endPt = beltPos(conv, conv.lengthM);
   const strays = Object.values(g2.state.bagsById)
@@ -482,7 +482,7 @@ lines.push('--- G. grab, carry, throw, scan (GDD 6.1, 7.1, 17.1) ---');
   ok('G18 but the wrong placement is ALLOWED to stand (GDD 31.1.8)',
      wrongPad.location.type === 'floor' && Math.abs(wrongPad.x - (pad2.x + 2)) < 1e-9);
 
-  const offPad = placeBag(gg, 30, 20, { flightId: 'flight_AB221' });
+  const offPad = placeBag(gg, 12, 26, { flightId: 'flight_AB221' });   // open floor: clear of both bays
   eq('G19 a bag on open floor scans neutral',
      scanBag(gg.state, offPad, gg.bus, 1000).verdict, 'neutral');
 
@@ -528,7 +528,8 @@ lines.push('--- H. determinism and the unattended shift ---');
   eq('H5 no bag was duplicated', new Set(Object.values(g.state.bagsById).map((x) => x.id)).size, total);
   eq('H6 the containment invariant survived', assertContainment(g.state).length, 0);
   const counts = countByLocation(g.state);
-  eq('H7 every bag is accounted for at the end', counts.floor + counts.conveyor + counts.carried, total);
+  eq('H7 every bag is accounted for at the end',
+     Object.values(counts).reduce((a, b) => a + b, 0), total);
   note(`unattended 10 min: ${total} bags -> ${counts.floor} on the floor, ${counts.conveyor} still on the belt`);
 
   ok('H8 the player never moved, because nothing told it to',

@@ -12,6 +12,7 @@
 import { CONFIG } from '../config.js';
 import { GameClock } from '../core/clock.js';
 import { assertContainment } from '../systems/containment.js';
+import { validateChain, trainOf } from '../systems/hitching.js';
 
 export class DebugOverlay {
   constructor(root, game, renderer) {
@@ -77,10 +78,12 @@ export class DebugOverlay {
     const held = s.player.carryingBagId || '-';
     const target = s.player.targetBagId || '-';
 
-    // The containment invariant, checked live. GDD §31.3 asks for development
-    // assertions on illegal bag locations; this is the one place a violation can be
-    // seen the instant it happens rather than at the next test run.
+    // The containment and hitch-chain invariants, checked live. GDD §31.3 asks for
+    // development assertions on illegal bag locations, and §28.1 for cart chain
+    // validation; this is the one place a violation is seen the instant it happens
+    // rather than at the next test run.
     const bad = assertContainment(s);
+    const chainBad = validateChain(s);
 
     this.el.textContent =
 `AIRPORT BAGGAGE CREW - DEV OVERLAY        F3 close
@@ -103,9 +106,12 @@ bags        ${d.bags} spawned of ${s.shift.bagSchedule.length} scheduled
 containment ${bad.length === 0 ? 'OK' : 'VIOLATED: ' + bad[0]}
 grid        ${g.grid.count} indexed, ${CONFIG.grid.cellM} m cells
 
-player      ${d.player.x.toFixed(2)}, ${d.player.y.toFixed(2)}
+${cartLines(s)}
+chain       ${chainBad.length === 0 ? 'OK' : 'VIOLATED: ' + chainBad[0]}
+${vehicleLines(s, g)}
+player      ${d.player.x.toFixed(2)}, ${d.player.y.toFixed(2)}${d.player.driving ? ' (driving ' + d.player.driving + ')' : ''}
 held        ${held}
-target      ${target}
+target      ${target}${s.player.targetCartId ? '  cart ' + s.player.targetCartId : ''}
 bounds      ${this.renderer.showBounds ? 'ON' : 'off'} (B)    grid ${this.renderer.showGrid ? 'ON' : 'off'} (G)
 
 recent events
@@ -116,4 +122,31 @@ pending: flight timers (M3) - carts (M2)
   }
 
   destroy() { window.removeEventListener('keydown', this._onKey); this.el.remove(); }
+}
+
+/* ── formatting helpers, kept out of update() so the template stays readable ─── */
+
+function cartLines(s) {
+  const carts = Object.values(s.cartsById);
+  if (!carts.length) return 'carts       (none)';
+  return carts.map((c, i) => {
+    const head = i === 0 ? 'carts       ' : '            ';
+    const placard = c.placardLabel || '--';
+    const hitched = c.hitchedToId ? '-> ' + c.hitchedToId : 'free';
+    const stab = String(Math.round(c.stability * 100)).padStart(3);
+    return `${head}${c.id} ${String(c.bagIds.length).padStart(2)}/${c.capacitySlots} ` +
+           `${placard.padEnd(4)} st${stab} sp${c.spills} ${hitched}`;
+  }).join('\n');
+}
+
+function vehicleLines(s, g) {
+  const vs = Object.values(s.vehiclesById);
+  if (!vs.length) return 'vehicles    (none)';
+  return vs.map((v, i) => {
+    const head = i === 0 ? 'vehicles    ' : '            ';
+    const train = trainOf(s, v);
+    return `${head}${v.id} ${v.x.toFixed(1)},${v.y.toFixed(1)} ` +
+           `spd ${v.speed.toFixed(1)} train ${train.length} odo ${Math.round(v.odometerM)}m` +
+           `${v.driverId ? ' [driven]' : ''}`;
+  }).join('\n') + (g ? '' : '');
 }

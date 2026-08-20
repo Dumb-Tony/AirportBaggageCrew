@@ -22,8 +22,16 @@ export const EVENTS = Object.freeze({
   BAG_RELEASED:         'BAG_RELEASED',
   BAG_THROWN:           'BAG_THROWN',
   BAG_SCANNED:          'BAG_SCANNED',
-  // Reserved for their milestones (GDD §21.5). Not emitted yet.
+  // Milestone 2.
   BAG_PLACED_IN_CART:   'BAG_PLACED_IN_CART',
+  BAG_TAKEN_FROM_CART:  'BAG_TAKEN_FROM_CART',
+  BAG_SPILLED:          'BAG_SPILLED',
+  CART_HITCHED:         'CART_HITCHED',
+  CART_UNHITCHED:       'CART_UNHITCHED',
+  CART_PLACARD_SET:     'CART_PLACARD_SET',
+  VEHICLE_ENTERED:      'VEHICLE_ENTERED',
+  VEHICLE_EXITED:       'VEHICLE_EXITED',
+  // Reserved for their milestones (GDD §21.5). Not emitted yet.
   BAG_ENTERED_HOLD:     'BAG_ENTERED_HOLD',
   BAG_LEFT_HOLD:        'BAG_LEFT_HOLD',
   FLIGHT_STATE_CHANGED: 'FLIGHT_STATE_CHANGED',

@@ -11,6 +11,9 @@
 import { WORLD, BOUNDS, ZONES, WALLS, MARKINGS, ANCHORS, STAGING_PADS } from '../data/airport.js';
 import { beltPos } from '../entities/conveyor.js';
 import { chargeFrac } from '../entities/player.js';
+import { cartTowPoint } from '../entities/cart.js';
+import { tractorTowPoint } from '../entities/tractor.js';
+import { CONFIG } from '../config.js';
 
 /** World palette. Operational colours, high contrast, colour never the only channel. */
 export const PALETTE = {
@@ -69,7 +72,10 @@ export class Renderer {
     this._drawWalls();
     this._drawZoneLabels();
     this._drawConveyor(state);
+    this._drawHitchLinks(state);
+    this._drawCarts(state);
     this._drawBags(state);
+    this._drawVehicles(state);
     this._drawPlayer(state);
     if (this.showBounds) this._drawBounds(state);
 
@@ -242,13 +248,158 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** Drawbars, under everything, so a train reads as one connected thing. */
+  _drawHitchLinks(state) {
+    const { ctx } = this;
+    ctx.strokeStyle = '#1d2029';
+    ctx.lineWidth = 0.22;
+    ctx.lineCap = 'round';
+    for (const cart of Object.values(state.cartsById)) {
+      if (!cart.hitchedToId) continue;
+      const parent = state.cartsById[cart.hitchedToId] || state.vehiclesById[cart.hitchedToId];
+      if (!parent) continue;
+      const p = parent.kind === 'tractor' ? tractorTowPoint(parent) : cartTowPoint(parent);
+      const nose = {
+        x: cart.x + Math.cos(cart.rot) * (CONFIG.cart.lengthM / 2),
+        y: cart.y + Math.sin(cart.rot) * (CONFIG.cart.lengthM / 2),
+      };
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(nose.x, nose.y);
+      ctx.stroke();
+    }
+    ctx.lineCap = 'butt';
+  }
+
+  /** Open frames with visible contents — GDD §19.1. The bags themselves are drawn by
+   *  _drawBags from their own world positions, so a cart is only ever the frame. */
+  _drawCarts(state) {
+    const { ctx } = this;
+    const L = CONFIG.cart.lengthM, W = CONFIG.cart.widthM;
+    const target = state.player.targetCartId;
+
+    for (const cart of Object.values(state.cartsById)) {
+      ctx.save();
+      ctx.translate(cart.x, cart.y);
+      ctx.rotate(cart.rot);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      roundRect(ctx, -L / 2 + 0.08, -W / 2 + 0.1, L, W, 0.16);
+      ctx.fill();
+
+      // bed
+      ctx.fillStyle = '#3a3f4b';
+      roundRect(ctx, -L / 2, -W / 2, L, W, 0.16);
+      ctx.fill();
+      ctx.strokeStyle = '#20242e';
+      ctx.lineWidth = 0.09;
+      ctx.stroke();
+
+      // side rails, so it reads as an open frame rather than a slab
+      ctx.strokeStyle = '#5b6373';
+      ctx.lineWidth = 0.13;
+      ctx.beginPath();
+      ctx.moveTo(-L / 2 + 0.12, -W / 2 + 0.1); ctx.lineTo(L / 2 - 0.12, -W / 2 + 0.1);
+      ctx.moveTo(-L / 2 + 0.12,  W / 2 - 0.1); ctx.lineTo(L / 2 - 0.12,  W / 2 - 0.1);
+      ctx.stroke();
+
+      // drawbar stub at the nose
+      ctx.fillStyle = '#2a2e38';
+      ctx.fillRect(L / 2 - 0.05, -0.1, 0.42, 0.2);
+
+      // Stability warning. GDD §6.4 wants spill risk to be readable BEFORE it happens,
+      // not explained afterwards.
+      if (cart.stability < 0.6) {
+        const a = (0.6 - cart.stability) / 0.6;
+        ctx.strokeStyle = `rgba(255,90,90,${(0.25 + a * 0.6).toFixed(3)})`;
+        ctx.lineWidth = 0.18;
+        roundRect(ctx, -L / 2 - 0.1, -W / 2 - 0.1, L + 0.2, W + 0.2, 0.2);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // placard: a small board on the near side, colour AND code
+      if (cart.placardLabel) {
+        const px = cart.x - Math.sin(cart.rot) * (W / 2 + 0.34);
+        const py = cart.y + Math.cos(cart.rot) * (W / 2 + 0.34);
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(cart.rot);
+        ctx.fillStyle = cart.placardColor || '#888';
+        roundRect(ctx, -0.62, -0.28, 1.24, 0.56, 0.1);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.font = '800 0.42px Quicksand, "Segoe UI", system-ui, sans-serif';
+        ctx.fillText(cart.placardLabel, 0, 0.02);
+        ctx.restore();
+      }
+
+      if (cart.id === target) {
+        ctx.strokeStyle = PALETTE.paint;
+        ctx.lineWidth = 0.09;
+        ctx.setLineDash([0.35, 0.3]);
+        ctx.strokeRect(cart.x - L / 2 - 0.25, cart.y - W / 2 - 0.25, L + 0.5, W + 0.5);
+        ctx.setLineDash([]);
+      }
+    }
+  }
+
+  _drawVehicles(state) {
+    const { ctx } = this;
+    const L = CONFIG.tractor.lengthM, W = CONFIG.tractor.widthM;
+
+    for (const v of Object.values(state.vehiclesById)) {
+      ctx.save();
+      ctx.translate(v.x, v.y);
+      ctx.rotate(v.rot);
+
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      roundRect(ctx, -L / 2 + 0.08, -W / 2 + 0.1, L, W, 0.2);
+      ctx.fill();
+
+      ctx.fillStyle = v.driverId ? '#d87a2a' : '#a8601f';
+      roundRect(ctx, -L / 2, -W / 2, L, W, 0.2);
+      ctx.fill();
+      ctx.strokeStyle = '#2a1a08';
+      ctx.lineWidth = 0.09;
+      ctx.stroke();
+
+      // an unmistakable front — GDD §19.1 "tractor with obvious front and hitch"
+      ctx.fillStyle = '#f2e2c0';
+      ctx.beginPath();
+      ctx.moveTo(L / 2 - 0.05, -W / 2 + 0.12);
+      ctx.lineTo(L / 2 + 0.32, 0);
+      ctx.lineTo(L / 2 - 0.05, W / 2 - 0.12);
+      ctx.closePath();
+      ctx.fill();
+
+      // roll cage
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 0.1;
+      ctx.strokeRect(-0.45, -W / 2 + 0.18, 0.9, W - 0.36);
+
+      // the hitch, at the back
+      ctx.fillStyle = '#2a2e38';
+      ctx.fillRect(-L / 2 - 0.34, -0.11, 0.42, 0.22);
+      ctx.restore();
+
+      if (!v.driverId && state.player.targetVehicleId === v.id) {
+        ctx.strokeStyle = PALETTE.paint;
+        ctx.lineWidth = 0.09;
+        ctx.beginPath();
+        ctx.arc(v.x, v.y, L * 0.75, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+  }
+
   _drawBags(state) {
     const { ctx } = this;
     const target = state.player.targetBagId;
     for (const id of Object.keys(state.bagsById)) {
       const bag = state.bagsById[id];
       const t = bag.location.type;
-      if (t !== 'floor' && t !== 'conveyor' && t !== 'carried') continue;
+      if (t !== 'floor' && t !== 'conveyor' && t !== 'carried' && t !== 'cart') continue;
       this._drawBag(bag, id === target);
     }
   }
@@ -329,28 +480,35 @@ export class Renderer {
       ctx.stroke();
     }
 
+    // Driving: the player sits at the tractor position, so draw a smaller seated figure
+    // on top of the cab instead of a full body standing on it.
+    const seated = !!p.drivingId;
+    const br = seated ? r * 0.55 : r;
+
     ctx.save();
     ctx.translate(p.x, p.y);
 
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.arc(0.06, 0.09, r, 0, Math.PI * 2); ctx.fill();
+    if (!seated) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.arc(0.06, 0.09, br, 0, Math.PI * 2); ctx.fill();
+    }
 
     ctx.rotate(Math.atan2(p.aimY, p.aimX));
     // hi-vis vest
     ctx.fillStyle = '#e8e04a';
-    ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 0, br, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = '#3a3618'; ctx.lineWidth = 0.06; ctx.stroke();
     // reflective band
     ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 0.08;
-    ctx.beginPath(); ctx.arc(0, 0, r * 0.62, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, br * 0.62, 0, Math.PI * 2); ctx.stroke();
     // head, offset toward the facing so the direction reads at a glance
     ctx.fillStyle = '#e8c9a0';
-    ctx.beginPath(); ctx.arc(r * 0.30, 0, r * 0.40, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(br * 0.30, 0, br * 0.40, 0, Math.PI * 2); ctx.fill();
     // hands, when carrying
     if (p.carryingBagId) {
       ctx.fillStyle = '#2a2a30';
-      ctx.beginPath(); ctx.arc(r * 0.75, -r * 0.55, r * 0.22, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(r * 0.75, r * 0.55, r * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(br * 0.75, -br * 0.55, br * 0.22, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(br * 0.75, br * 0.55, br * 0.22, 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
   }

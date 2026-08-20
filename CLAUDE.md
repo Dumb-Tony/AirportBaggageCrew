@@ -23,6 +23,14 @@ Dev-wide catalog of what already exists and where to copy it from.
   the held-object + prompt HUD. Measured: full throw 12.1 m normal / 3.8 m heavy /
   16.8 m light; two seconds of walking 8.1 m empty vs 5.1 m carrying heavy; 100 loose
   bags cost 0.28 ms per step. **125 assertions, 242 total** + `docs/m1-sorting.png`.
+- 2026-08-19 — **M2 DONE.** Transport. Carts with slots, dual capacity and placards;
+  `hitching.js` with a validated chain; the tractor; towing by drawbar constraint;
+  spillage on hard corners; load / unload / hitch / drive verbs. The marked bays MOVED
+  north to the belt — the M1 carry was ~17 m per bag and is now ~7 m. Measured: turning
+  radius 1.7 m below the reference speed, 3.9 m at full tilt; a loaded cart reaches
+  gate 1 in 19.6 s with 10 of 10 aboard; drawbar stretch under 0.02 m; three loaded
+  carts plus 100 loose bags cost 0.33 ms per step. **140 assertions, 382 total** +
+  `docs/m2-transport.png`.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -90,6 +98,31 @@ Dev-wide catalog of what already exists and where to copy it from.
 - **The conveyor feed defers rather than stacking.** If the belt entry is occupied,
   `spawnDueBags` breaks out and the schedule backs up. The belt never stops, so a
   deferred bag always arrives — late, which is the correct behaviour.
+- **A towed cart is POSITIONED, not integrated.** `updateTrain` places each cart at a
+  fixed distance behind its parent hitch, facing it, then calls `pushOutOfWalls`. That
+  is why a train cuts corners correctly with no solver and why the drawbar cannot
+  stretch. It also means a cart does not collide properly — do not add velocity to a
+  towed cart, fix the constraint instead.
+- **A hitch link is stored twice** (`parent.nextCartId` and `child.hitchedToId`) because
+  both directions get walked. Duplications drift, so `validateChain()` proves they still
+  agree and it runs in the debug overlay live, not only in the suite. Any new way to
+  attach or detach a cart must go through `hitch`/`unhitchTail`.
+- **`Game.step()` order is load-bearing and now starts with vehicles**: spawn → belt →
+  vehicles + trains → pin cart loads → rebuild grid → player → interaction → loose bags →
+  cart absorption. A driving player is positioned FROM the tractor, so the tractor must
+  move first; the load is pinned immediately after the train is placed so a cart and its
+  bags can never be rendered a step apart.
+- **The renderer must never import flight data.** `setPlacard()` writes denormalised
+  display copies (`placardLabel`, `placardColor`) beside the id so the renderer can draw
+  a placard without knowing what a flight is. One writer, so they cannot drift. When M3
+  puts flight codes on aircraft, do the same thing rather than reaching for `flights.js`.
+- **A cart is longer than the player can reach.** 2.4 m of bed against 1.7 m of reach, so
+  the far slots are genuinely unreachable from one side. E with empty hands takes the TOP
+  of the pile when nothing specific is in range; without that you could load a bag and
+  then be unable to retrieve it.
+- **Spill is a stability score, not physics** (GDD §6.4 permits this). Lateral load is
+  speed × yaw rate scaled by fill. The numbers are PROVISIONAL — M6 owns them — and a
+  full-lock circle at top speed still empties a cart.
 
 ## Gotchas already paid for
 
@@ -124,6 +157,13 @@ Dev-wide catalog of what already exists and where to copy it from.
   spin forever. Shuffle a candidate pool and slice instead.
 - **Bash heredocs here break on apostrophes** — the command is wrapped in single quotes,
   so prose files (README, CHANGELOG, this file) need the Write tool, not `cat <<EOF`.
+  There is also no `python`/`python3` on this box; `sed`, `perl` and the Edit tool are
+  the editing options, and `sed` with backslash-heavy Windows paths often silently
+  matches nothing — check the result rather than trusting the exit code.
+- **A source-hygiene grep must test for LOGIC, not for words.** The m0 G4 check
+  originally failed the renderer for containing the string "flight", which a placard
+  legitimately needs. It now looks for score arithmetic, schedule field names and
+  `simTimeMs` comparisons instead.
 - `chrome.exe` is a GUI-subsystem binary: `$x = & chrome --dump-dom` captures **nothing**
   under PowerShell. Redirect to a file (`Start-Process -RedirectStandardOutput`).
 - PS 5.1 `Get-Content -Raw` defaults to **ANSI** — always pass `-Encoding UTF8` or a
@@ -163,18 +203,20 @@ Dev-wide catalog of what already exists and where to copy it from.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (242 assertions), exit 0 = green
-tools\test.ps1 -Only m1     # one suite
+tools\test.ps1              # all suites (382 assertions), exit 0 = green
+tools\test.ps1 -Only m2     # one suite
 
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js     # is rAF usable under the harness
+tools\shot.ps1 -Setup tools\_shot-m2.js -Out docs\m2-transport.png
 tools\shot.ps1 -Setup tools\_shot-m1.js -Out docs\m1-sorting.png
 tools\shot.ps1 -Setup tools\_shot-playing.js -Out docs\m0-airport.png
 ```
 
-The m1 suite PRINTS its feel numbers (throw distances, walk speed carrying weight, heavy
-bag mix per flight, cost per step at 100 bags) on every run. When Milestone 6 tunes the
-game, those printed lines are the before/after evidence — read them, do not re-derive.
+The m1 and m2 suites PRINT their feel numbers (throw distances, walk speed under load,
+turning radius by speed, time to each gate, drawbar stretch, spills per corner, cost per
+step) on every run. When Milestone 6 tunes the game, those printed lines are the
+before/after evidence — read them, do not re-derive them.
 
 In the browser console: `__ABC` exposes `game`, `camera`, `renderer`, `hud`, `debug`,
 `input` and `CONFIG`.

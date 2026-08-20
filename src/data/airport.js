@@ -60,11 +60,17 @@ export const CONVEYOR = {
 };
 CONVEYOR.lengthM = Math.hypot(CONVEYOR.x1 - CONVEYOR.x0, CONVEYOR.y1 - CONVEYOR.y0);
 
-/** Marked floor staging, one pad per gate. GDD §7.3: "Sorting is physical placement onto
- *  marked carts or staging zones." Carts land in Milestone 2 and will park on these. */
+/** Marked cart bays, one per gate. GDD §7.3: "Sorting is physical placement onto marked
+ *  carts or staging zones" — at Milestone 2 these are the same thing, because a cart
+ *  parks on its bay and the bay label says which gate it serves.
+ *
+ *  Moved north for M2. At M1 they sat at y 29-37 and the carry from the belt drop was
+ *  ~17 m per bag; with carts as the target that walk is the whole loop and it was far
+ *  too long. From the pile at (26, 13) the near bay is now ~7 m. The pressure is meant
+ *  to come from choosing the right cart and from the drive, not from walking. */
 export const STAGING_PADS = [
-  { id: 'pad_gate_1', gateId: 'gate_1', label: 'GATE 1', x: 7.5, y: 29, w: 9, h: 8 },
-  { id: 'pad_gate_2', gateId: 'gate_2', label: 'GATE 2', x: 20,  y: 29, w: 9, h: 8 },
+  { id: 'pad_gate_1', gateId: 'gate_1', label: 'GATE 1', x: 16, y: 17.5, w: 7, h: 5.5 },
+  { id: 'pad_gate_2', gateId: 'gate_2', label: 'GATE 2', x: 25, y: 17.5, w: 7, h: 5.5 },
 ];
 
 /** Painted markings — presentation only, never collision. */
@@ -80,8 +86,10 @@ export const MARKINGS = [
 export const ANCHORS = {
   conveyorEnd:  { x: 26, y: 13 },   // where bags land in the sort room  (M1)
   sortDoor:     { x: 35, y: 23 },   // sort room <-> staging             (M0 route measure)
-  cartPark:     { x: 44, y: 22 },   // cart staging                      (M2)
-  tractorPark:  { x: 44, y: 34 },   // tractor spawn                     (M2)
+  cartBay1:     { x: 19.5, y: 20.25 },  // a cart parks on each marked bay   (M2)
+  cartBay2:     { x: 28.5, y: 20.25 },
+  cartPark:     { x: 10.5, y: 20.25 },  // the spare third cart              (M2)
+  tractorPark:  { x: 42, y: 23 },       // outside the door, lined up on it  (M2)
   gate1Hold:    { x: 90, y: 19 },   // aircraft hold door, gate 1        (M3)
   gate2Hold:    { x: 90, y: 51 },   // aircraft hold door, gate 2        (M3)
   playerSpawn:  { x: 22, y: 24 },

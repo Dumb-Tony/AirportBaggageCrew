@@ -90,10 +90,61 @@ export const CONFIG = {
     recentEvents: 6,
   },
 
-  /* ── carts, tractor, flights, scoring ───────────────────────────────────── */
+  /* ── carts ──────────────────────────────────────────────────────────────── */
+  cart: {
+    lengthM: 2.4,
+    widthM: 1.5,
+    linkM: 1.75,            // centre-to-tow-point distance; sets how tightly a train cuts corners
+    slotCols: 2,
+    slotRows: 5,
+    capacitySlots: 10,
+    // GDD §6.4: capacity by SPACE AND WEIGHT, not a hidden bag count. Both must be able
+    // to bind or one of them is decoration: 10 normal bags weigh 170 kg (slot-limited),
+    // 7 heavy weigh 217 kg (weight-limited at 6).
+    capacityWeight: 210,
+
+    // Spill. GDD §6.4 allows "a simpler stability score if reliable physics stacking is
+    // too costly", and it is. Lateral load is speed * yaw rate, scaled by how full the
+    // cart is; sustained load drains stability, and an empty tank throws a bag off.
+    spillLatMps2: 7.0,
+    spillDrainRate: 0.30,
+    stabilityRecover: 0.5,
+    spillEjectMps: 3.2,
+    spillStabilityAfter: 0.85,
+
+    absorbSpeedMps: 1.7,    // a bag slower than this, inside a cart, is caught by it
+    reentryCooldownMs: 900, // a spilled bag cannot be re-caught instantly
+    hitchRangeM: 3.0,
+    placardCycleMs: 250,    // debounce, so one press does not cycle three placards
+  },
+
+  /* ── tractor ────────────────────────────────────────────────────────────── */
+  tractor: {
+    lengthM: 2.2,
+    widthM: 1.3,
+    towOffsetM: 1.3,        // hitch point behind the centre
+
+    maxSpeed: 7.0,          // m/s — the 55 m run to gate 1 takes ~9 s at full tilt
+    reverseSpeed: 3.0,
+    accel: 6.0,
+    brakeDecel: 14.0,
+    drag: 1.4,              // coasting deceleration
+
+    // GDD §8.2: "forgiving turning at low speed", wider turns when moving fast. Yaw rate
+    // ramps to its cap at yawRefSpeed, so the turning RADIUS is a constant 3.9 m below
+    // that and grows with speed above it.
+    maxYawRate: 1.8,
+    yawRefSpeed: 3.0,
+
+    enterRangeM: 2.4,
+    restitution: 0.15,      // bump a wall, do not stick to it
+    bagShoveStrength: 1.4,  // vehicles scatter luggage — GDD §6.5
+  },
+
+  /* ── flights, scoring, audio ────────────────────────────────────────────── */
   // Deliberately absent. GDD §31.1.3: future systems are represented by clean
   // boundaries, not half-built features. Each block lands with its milestone:
-  //   carts, tractor -> M2      flights -> M3      scoring -> M4      audio -> M5
+  //   flights -> M3      scoring -> M4      audio -> M5
 };
 
 /** Deep-frozen so a system cannot quietly retune the game at runtime. Difficulty

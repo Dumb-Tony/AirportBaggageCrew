@@ -11,6 +11,7 @@ import { moveWithWalls, applyFriction, separate } from './physics.js';
 import { moveBag } from './containment.js';
 import { createBag } from '../entities/bag.js';
 import { EVENTS } from '../core/eventBus.js';
+import { cartContains, cartRoomFor, cartSlotWorld } from '../entities/cart.js';
 
 /**
  * Put every bag whose scheduled moment has passed onto the belt.
@@ -54,9 +55,57 @@ export function rebuildGrid(state, grid) {
   for (const id of Object.keys(state.bagsById)) {
     const bag = state.bagsById[id];
     const t = bag.location.type;
-    if (t === 'floor' || t === 'conveyor') grid.insert(id, bag.x, bag.y);
+    if (t === 'floor' || t === 'conveyor' || t === 'cart') grid.insert(id, bag.x, bag.y);
   }
   return grid;
+}
+
+/**
+ * Pin every bag in a cart to its slot. GDD §21.6 — a bag in a cart is not simulated, it
+ * is a local position on a moving frame. This runs AFTER the train has been placed, so a
+ * cart and its load can never be seen a step apart.
+ */
+export function syncCartBagPositions(state) {
+  for (const cart of Object.values(state.cartsById)) {
+    for (let i = 0; i < cart.bagIds.length; i++) {
+      const bag = state.bagsById[cart.bagIds[i]];
+      if (!bag) continue;
+      const p = cartSlotWorld(cart, i);
+      bag.x = p.x; bag.y = p.y;
+      bag.vx = 0; bag.vy = 0;
+      bag.rot = cart.rot + bag.appearance.wobble * 0.4;
+    }
+  }
+}
+
+/**
+ * A loose bag that comes to rest inside a cart is caught by it — so throwing luggage
+ * into a cart works, which is most of the fantasy (GDD §1: "Grab. Throw.").
+ *
+ * The cooldown matters: without it a bag that spills on a corner is instantly swallowed
+ * again by the cart that just threw it, and the spill never reads as a mistake.
+ */
+export function absorbIntoCarts(state, simTimeMs, bus) {
+  const carts = Object.values(state.cartsById);
+  if (!carts.length) return 0;
+  let n = 0;
+
+  for (const id of Object.keys(state.bagsById)) {
+    const bag = state.bagsById[id];
+    if (bag.location.type !== 'floor') continue;
+    if (Math.hypot(bag.vx, bag.vy) > CONFIG.cart.absorbSpeedMps) continue;
+    if (bag.cartCooldownMs && simTimeMs < bag.cartCooldownMs) continue;
+
+    for (const cart of carts) {
+      if (!cartContains(cart, bag.x, bag.y)) continue;
+      if (!cartRoomFor(cart, state, bag).ok) break;    // full: it stays on the floor
+      bag.vx = 0; bag.vy = 0;
+      moveBag(state, bag, { type: 'cart', id: cart.id }, bus, simTimeMs);
+      n++;
+      break;
+    }
+  }
+  return n;
 }
 
 /**
@@ -102,11 +151,31 @@ export function stepBags(state, dtSec, grid) {
   //    walk through your own mess would be realistic and miserable; GDD §6.5 wants
   //    readable, reversible disruption instead.
   const p = state.player;
-  grid.query(p.x, p.y, p.radiusM + 1.2, near);
-  for (const id of near) {
-    const bag = state.bagsById[id];
-    if (!bag || bag.location.type !== 'floor') continue;
-    // weightA = 0 pins the player and moves only the bag
-    separate(p, bag, p.radiusM + bag.radiusM, 0, CONFIG.player.pushStrength);
+  if (!p.drivingId) {
+    grid.query(p.x, p.y, p.radiusM + 1.2, near);
+    for (const id of near) {
+      const bag = state.bagsById[id];
+      if (!bag || bag.location.type !== 'floor') continue;
+      // weightA = 0 pins the player and moves only the bag
+      separate(p, bag, p.radiusM + bag.radiusM, 0, CONFIG.player.pushStrength);
+    }
+  }
+
+  // 4. vehicles scatter luggage harder than people do — GDD §6.5, §8.2.
+  for (const v of Object.values(state.vehiclesById)) {
+    if (!v.driverId) continue;
+    grid.query(v.x, v.y, v.radiusM + 1.4, near);
+    for (const id of near) {
+      const bag = state.bagsById[id];
+      if (!bag || bag.location.type !== 'floor') continue;
+      if (separate(v, bag, v.radiusM + bag.radiusM, 0, CONFIG.tractor.bagShoveStrength)) {
+        // give it a shove so it visibly skitters rather than sliding silently aside
+        const dx = bag.x - v.x, dy = bag.y - v.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const kick = Math.min(3.5, Math.abs(v.speed || 0) * 0.6);
+        bag.vx += (dx / d) * kick;
+        bag.vy += (dy / d) * kick;
+      }
+    }
   }
 }

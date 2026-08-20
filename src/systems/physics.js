@@ -10,7 +10,7 @@
  * without building a game.
  */
 
-import { isBlocked, clampToBounds } from '../data/airport.js';
+import { isBlocked, clampToBounds, wallAt } from '../data/airport.js';
 
 /**
  * Integrate velocity against the world, one axis at a time so an entity slides along a
@@ -79,6 +79,42 @@ export function separate(a, b, minDist, weightA = 0.5, strength = 0.55) {
   b.x += nx * overlap * (1 - weightA);
   b.y += ny * overlap * (1 - weightA);
   return true;
+}
+
+/**
+ * Shove an entity out of any wall it has ended up inside, along the shallowest axis.
+ *
+ * Towed carts are positioned by a constraint rather than by integration, so they cannot
+ * use moveWithWalls — a tight turn through the sort-room door can place one straight
+ * through a wall. This is the cleanup pass for anything positioned rather than moved.
+ * @returns {boolean} whether it had to be moved
+ */
+export function pushOutOfWalls(ent, radius) {
+  const w = wallAt(ent.x, ent.y, radius);
+  if (!w) return false;
+
+  const left  = (ent.x) - (w.x - radius);          // distance to exit each side
+  const right = (w.x + w.w + radius) - ent.x;
+  const up    = (ent.y) - (w.y - radius);
+  const down  = (w.y + w.h + radius) - ent.y;
+
+  const min = Math.min(left, right, up, down);
+  if (min === left)       ent.x = w.x - radius - 1e-4;
+  else if (min === right) ent.x = w.x + w.w + radius + 1e-4;
+  else if (min === up)    ent.y = w.y - radius - 1e-4;
+  else                    ent.y = w.y + w.h + radius + 1e-4;
+
+  const c = clampToBounds(ent.x, ent.y, radius);
+  ent.x = c.x; ent.y = c.y;
+  return true;
+}
+
+/** Shortest signed difference between two angles, in (-PI, PI]. */
+export function angleDelta(a, b) {
+  let d = a - b;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }
 
 /** Unit vector from a to b, or null if they coincide. */

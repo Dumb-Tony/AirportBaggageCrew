@@ -7,12 +7,13 @@ A chaotic co-op game about an underqualified ground-handling crew. Built from
 [`GDD.md`](GDD.md) — the Master GDD is the authority on this project; this README covers
 how to run it and what is actually built.
 
-**Current state: Milestone 1 — the bag feels good. 242 assertions green.**
+**Current state: Milestone 2 — transport. 382 assertions green.**
 Bags arrive on a conveyor, carry identity, and can be picked up, carried, thrown,
-scanned and sorted onto marked staging pads. There is no cart, no tractor and no flight
-schedule yet — those are Milestones 2 and 3.
+scanned, and sorted into marked carts. Carts hitch into trains behind a tractor and get
+hauled to the gates — shedding luggage if you take the corner too fast. Nothing departs
+yet: the flight schedule is Milestone 3.
 
-![Sorting bags onto the gate pads, with a wrong-pad scan](docs/m1-sorting.png)
+![A loaded two-cart train being hauled to gate 1, with two bags shaken off on the corner](docs/m2-transport.png)
 
 ---
 
@@ -32,22 +33,33 @@ substitute, and the page prints a clear message if you open it from disk anyway.
 
 ## Controls
 
+On foot:
+
 | Action | Input |
 |---|---|
 | Move | `W` `A` `S` `D` or arrow keys |
 | Aim | Mouse, or your direction of travel if you never touch it |
-| Pick up / put down | `E` |
+| Pick up · put down · load into a cart · take off a cart | `E` |
 | Throw | Hold `Space`, release |
 | Scan | `Q` |
-| Start shift / pause / resume | `Esc` |
-| Restart shift (pause screen only) | `R` |
-| Developer overlay | `F3` |
+| Climb into the tractor · set a cart placard | `F` |
 
-Inside the overlay: `B` interaction bounds · `G` grid · `[` `]` time scale · `.` skip 10 s.
+Driving:
 
-`F` (interact) and the vehicle bindings exist but have nothing to act on until
-Milestone 2. The GDD (§17.1) flags that grab and throw conflict if both sit on the mouse;
-they are split across `E` and `Space` here for that reason.
+| Action | Input |
+|---|---|
+| Throttle · brake-then-reverse | `W` · `S` |
+| Steer | `A` `D` |
+| Brake | `Space` |
+| Hitch the cart behind you, or drop the last one | `E` |
+| Get out | `F` |
+
+Any time: `Esc` start / pause / resume · `R` restart from the pause screen · `F3`
+developer overlay (`B` bounds · `G` grid · `[` `]` time scale · `.` skip 10 s).
+
+`E` handles the thing in front of you and `F` handles equipment. The GDD (§17.1) flags
+that grab and throw conflict if both sit on the mouse, so they are split across `E` and
+`Space`; §31.4 permits the choice as long as it is documented and consistent.
 
 ## Test it
 
@@ -60,7 +72,7 @@ suite into a scratch copy of the page, serves it, drives it in headless Chrome, 
 the dumped DOM. Exit 0 means green.
 
 ```bash
-tools\test.ps1 -Only m1
+tools\test.ps1 -Only m2
 ```
 
 Diagnostics, which measure rather than gate:
@@ -70,7 +82,7 @@ tools\smoketest.ps1 -Tests tools\_raf.js
 ```
 
 ```bash
-tools\shot.ps1 -Setup tools\_shot-m1.js -Out docs\m1-sorting.png
+tools\shot.ps1 -Setup tools\_shot-m2.js -Out docs\m2-transport.png
 ```
 
 ---
@@ -98,17 +110,18 @@ monetisation.
 |---|---|---|
 | 0 | Skeleton and design locks | **done** — 117 assertions |
 | 1 | The bag feels good | **done** — 125 assertions |
-| 2 | Transport — carts, hitching, the tractor | next |
-| 3 | Sacred schedule — flight states, board, departures | |
+| 2 | Transport — carts, hitching, the tractor | **done** — 140 assertions |
+| 3 | Sacred schedule — flight states, board, departures | next |
 | 4 | Outcomes and pressure — scoring, report, replay | |
 | 5 | Onboarding and juice — audio, hints, accessibility | |
 | 6 | Balance and hardening | |
 
-## What Milestone 1 measures
+## What the suites measure
 
-The exit criterion is "moving and sorting ten bags is reliable and pleasant". Reliable is
-testable; pleasant is not, so the feel numbers are measured and printed by the suite
-rather than assumed:
+Feel is not testable; the numbers behind it are. Each suite prints its own on every run,
+so the Milestone 6 balance pass has before-and-after evidence instead of opinions.
+
+Milestone 1 — the bag:
 
 | | |
 |---|---|
@@ -118,7 +131,20 @@ rather than assumed:
 | A bag thrown at 8 m/s | slides 1.35 s before stopping |
 | Conveyor | 21 m of belt at 1.6 m/s — a 13 s ride |
 | Authored shift | 50 bags across 3 flights; heavy bags 6% AB221, 31% MC184, 39% SK307 |
-| 100 loose bags | 0.28 ms per simulation step, against a 16.67 ms budget |
+| 100 loose bags | 0.23 ms per simulation step, against a 16.67 ms budget |
+
+Milestone 2 — transport:
+
+| | |
+|---|---|
+| Turning radius | 1.7 m at 1.5 m/s · 1.7 m at 3 m/s · 3.9 m at 7 m/s |
+| Nought to top speed | 1.17 s |
+| A loaded cart to gate 1 / gate 2 | 19.6 s / 20.6 s of driving, 10 of 10 delivered |
+| Drawbar stretch over a full run | under 0.02 m |
+| Cart capacity | 10 light bags (out of slots) · 6 heavy, 186 kg (out of weight) |
+| Three-cart train driven hard | 11 of 12 aboard, 1 shaken off |
+| Ten bags, full-lock circle at 7 m/s | 9 shaken off — the same circle at 1.2 m/s: none |
+| Three loaded carts + 100 loose bags | 0.33 ms per step |
 
 ## Layout
 
@@ -130,32 +156,40 @@ src/
   game.js         authoritative state, fixed-step driver, pause/restart
   core/           clock · input · eventBus · rng · grid
   data/           airport.js — the map · flights.js — the authored shift
-  entities/       bag · player · conveyor
-  systems/        containment · baggageFlow · interaction · physics
+  entities/       bag · player · conveyor · cart · tractor
+  systems/        containment · baggageFlow · hitching · interaction · physics
   render/         camera · renderer (Canvas 2D)
   ui/             hud.js · scannerCard.js
   dev/            debugOverlay.js — F3, never player-facing
-tools/            serve · smoketest · test · shot · m0/m1 suites · diagnostics
+tools/            serve · smoketest · test · shot · m0/m1/m2 suites · diagnostics
 docs/             screenshots
 ```
 
-The suggested tree in GDD §21.2 also lists `core/stateMachine.js`, `entities/cart.js`,
-`entities/tractor.js`, `entities/aircraft.js`, `systems/flightSchedule.js`,
-`systems/scoring.js`, `systems/announcements.js`, `systems/save.js` and three more UI
-panels. Those are deliberately absent: GDD §31.1.3 asks for clean boundaries rather than
-half-built features, so each file arrives with the milestone that fills it. The GDD
+The suggested tree in GDD §21.2 also lists `core/stateMachine.js`,
+`entities/aircraft.js`, `systems/flightSchedule.js`, `systems/scoring.js`,
+`systems/announcements.js`, `systems/save.js` and three more UI panels. Those are
+deliberately absent: GDD §31.1.3 asks for clean boundaries rather than half-built
+features, so each file arrives with the milestone that fills it. The GDD
 `systems/baggageFlow.js` is split here into `containment.js` (the one writer of a bag
 location) and `baggageFlow.js` (spawning and loose-bag movement).
 
 ---
 
-## Known limitations at Milestone 1
+## Known limitations at Milestone 2
 
-- **No carts, tractor, aircraft or flight schedule.** Bags can be sorted onto the two
-  marked staging pads, and that is as far as the operation goes. Flight records exist as
-  static data so a tag has something to say; nothing advances or departs.
+- **No aircraft and no flight schedule.** You can haul a loaded cart to a gate and park
+  it there, and that is where the operation stops. Flight records exist as static data so
+  a tag and a placard have something to say; nothing advances, closes or departs.
+- **Nothing is scored.** Correct, wrong and missed are not evaluated until Milestone 4,
+  so a perfectly sorted train and a cart full of the wrong city are worth the same today.
 - **The shift clock runs past its end.** The end-of-shift transition and report land with
   Milestone 4; today the clock keeps counting and `shiftRemainingMs` reads 0.
+- **Spill tuning is provisional.** A full-lock circle at top speed empties a cart, which
+  is probably too harsh even for a deliberate stunt. Milestone 6 owns the balance pass.
+- **Carts are placed, not driven.** A towed cart is positioned by the drawbar constraint
+  and then pushed out of any wall it lands in, rather than colliding properly. It cannot
+  end up inside geometry — the suite checks that over a full run — but a cart taking a
+  tight corner can visibly clip a wall for a frame.
 - **No audio.** GDD §18 wants a scanner beep, a wrong-buzz and escalating announcements;
   every one of those cues is visual-only until Milestone 5.
 - **Stacking is separation, not physics.** Bags push each other apart on the floor; they

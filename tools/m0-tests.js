@@ -408,8 +408,15 @@ async function sectionG() {
     /(Date\.now|performance\.now)\s*\(/.test(bodies[f]));
   ok('G3 only main.js touches wall-clock time', wall.length === 0, wall.join());
 
-  ok('G4 the renderer holds no scoring or schedule logic',
-     !/score|flight|depart/i.test(bodies['src/render/renderer.js']));
+  // Tests for LOGIC, not for words: a renderer is allowed to draw a flight code on an
+  // aircraft or a placard, and will have to from Milestone 3. What it may never do is
+  // compute a score or read the schedule (GDD §31.3).
+  const rend = bodies['src/render/renderer.js'];
+  const leaks = [
+    /\bscore\b/i, /\.points\b/, /departureMs|finalCallMs|holdClosingMs|bagAcceptanceMs/,
+    /FLIGHT_DEFS|flightById|buildBagSchedule/, /simTimeMs\s*[<>]=?/,
+  ].filter((re) => re.test(rend)).map(String);
+  ok('G4 the renderer holds no scoring or schedule logic', leaks.length === 0, leaks.join());
 }
 
 async function sectionH() {

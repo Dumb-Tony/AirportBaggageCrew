@@ -110,3 +110,6 @@ button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .debug.on{display:block}
 
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* Milestone 2 additions */
+.prompt .dim{color:#5f5b77}

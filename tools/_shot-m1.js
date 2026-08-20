@@ -13,7 +13,7 @@ game.skipMs(115000);                       // 1:55 in — AB221 and MC184 both f
 const st = game.state;
 
 /* Sort a handful onto the pads, so the shot shows the verb the milestone is about. */
-const pads = { gate_1: { x: 9.5, y: 31 }, gate_2: { x: 22, y: 31 } };
+const pads = { gate_1: { x: 17.5, y: 19 }, gate_2: { x: 26.5, y: 19 } };
 const floor = Object.values(st.bagsById).filter((b) => b.location.type === 'floor');
 let placed = { gate_1: 0, gate_2: 0 };
 for (const bag of floor) {
@@ -30,11 +30,11 @@ for (const bag of floor) {
  * point of the scanner existing at this milestone. */
 const stray = floor.find((b) => b.gateId === 'gate_1' && placed.gate_1 > 0);
 if (stray) {
-  stray.x = 25.4; stray.y = 32.2; stray.vx = 0; stray.vy = 0; stray.rot = 0.3;
+  stray.x = 30.2; stray.y = 21.6; stray.vx = 0; stray.vy = 0; stray.rot = 0.3;
 }
 
 /* The player, holding a bag, next to the mistake. */
-st.player.x = 22.5; st.player.y = 27.5;
+st.player.x = 24.5; st.player.y = 25.5;
 st.player.aimX = 0.5; st.player.aimY = 0.87;
 const held = floor.find((b) => b !== stray && b.location.type === 'floor');
 if (held) {

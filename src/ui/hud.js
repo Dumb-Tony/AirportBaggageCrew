@@ -47,12 +47,14 @@ export class Hud {
         <div class="card">
           <h1>Airport Baggage Crew</h1>
           <p class="tag">Simple physical work, hilarious logistical panic.</p>
-          <p class="milestone">Milestone 0 &mdash; skeleton &amp; design locks</p>
+          <p class="milestone">Milestone 2 &mdash; transport</p>
           <button class="primary" id="btnStart">Start shift</button>
-          <p class="hint">The airport does not wait. <kbd>Esc</kbd> pauses everything.
-             <kbd>F3</kbd> opens the developer overlay.</p>
-          <p class="scope">No bags, carts, tractor or flights yet &mdash; this milestone
-             proves the clock, input, seeded RNG, map bounds, pause and restart.</p>
+          <p class="hint"><kbd>WASD</kbd> move &middot; <kbd>E</kbd> grab, load, hitch &middot;
+             <kbd>F</kbd> drive, placard &middot; <kbd>Space</kbd> throw &middot;
+             <kbd>Q</kbd> scan &middot; <kbd>Esc</kbd> pause</p>
+          <p class="scope">The belt runs whether you are ready or not. Sort bags onto the
+             marked carts, hitch up, and haul them to a gate. No flight schedule yet
+             &mdash; nothing departs until Milestone 3.</p>
         </div>
       </div>
 
@@ -123,18 +125,52 @@ export class Hud {
     }
 
     /* contextual prompt — GDD §16.2, §16.5: hint at the moment, never a modal */
-    const target = state.player.targetBagId;
-    const promptKey = `${held ? 'h' : ''}${target ? 't' : ''}`;
+    const p = state.player;
+    const cart = p.targetCartId ? state.cartsById[p.targetCartId] : null;
+    const inCart = held && cart && cart.bagIds.length < cart.capacitySlots;
+    const train = p.drivingId
+      ? (state.vehiclesById[p.drivingId] || {}).nextCartId ? this._trainLength(state) : 0
+      : 0;
+
+    const promptKey = [
+      p.drivingId ? 'd' + train : '', held ? 'h' : '', inCart ? 'c' : '',
+      cart ? 'C' + cart.bagIds.length : '', p.targetBagId ? 't' : '', p.targetVehicleId ? 'v' : '',
+    ].join('');
+
     if (promptKey !== this._lastPrompt) {
       this._lastPrompt = promptKey;
       let html = '';
-      if (held) html = key('E') + ' Put down   ' + key('Space') + ' Hold to throw   ' + key('Q') + ' Scan';
-      else if (target) html = key('E') + ' Pick up   ' + key('Q') + ' Scan';
+      if (p.drivingId) {
+        html = key('E') + (train ? ' Hitch / Unhitch' : ' Hitch cart') +
+               '   ' + key('F') + ' Get out' +
+               (train ? `   <span class="dim">towing ${train}</span>` : '');
+      } else if (held) {
+        html = key('E') + (inCart ? ' Load into cart' : ' Put down') +
+               '   ' + key('Space') + ' Hold to throw   ' + key('Q') + ' Scan';
+      } else if (p.targetBagId || (cart && cart.bagIds.length)) {
+        html = key('E') + (p.targetBagId ? ' Pick up' : ' Take from cart') +
+               '   ' + key('Q') + ' Scan' +
+               (cart ? '   ' + key('F') + ' Set placard' : '');
+      } else if (p.targetVehicleId) {
+        html = key('F') + ' Drive';
+      } else if (cart) {
+        html = key('F') + ' Set placard';
+      }
       this.el.prompt.innerHTML = html;
       this.el.prompt.classList.toggle('on', html !== '');
     }
 
     this.scannerCard.update(state);
+  }
+
+  /** How many carts the player is towing. Walks the chain rather than caching a count,
+   *  because the chain is the truth and a cached count is one more thing to drift. */
+  _trainLength(state) {
+    const v = state.vehiclesById[state.player.drivingId];
+    if (!v) return 0;
+    let n = 0, id = v.nextCartId;
+    while (id && n < 16) { const c = state.cartsById[id]; if (!c) break; n++; id = c.nextCartId; }
+    return n;
   }
 
   destroy() {

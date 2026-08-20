@@ -42,6 +42,12 @@ export function moveBag(state, bag, to, bus = null, simTimeMs = 0) {
       if (i >= 0) conv.bagIds.splice(i, 1);
     } else if (from.type === 'carried') {
       if (state.player.carryingBagId === bag.id) state.player.carryingBagId = null;
+    } else if (from.type === 'cart') {
+      const cart = state.cartsById[from.id];
+      if (cart) {
+        const i = cart.bagIds.indexOf(bag.id);
+        if (i >= 0) cart.bagIds.splice(i, 1);
+      }
     }
   }
 
@@ -49,6 +55,10 @@ export function moveBag(state, bag, to, bus = null, simTimeMs = 0) {
   if (to.type === 'conveyor') {
     const conv = state.world.conveyor;
     if (!conv.bagIds.includes(bag.id)) conv.bagIds.push(bag.id);
+  } else if (to.type === 'cart') {
+    const cart = state.cartsById[to.id];
+    if (!cart) throw new Error(`moveBag: ${bag.id} into unknown cart "${to.id}"`);
+    if (!cart.bagIds.includes(bag.id)) cart.bagIds.push(bag.id);
   } else if (to.type === 'carried') {
     // One pair of hands. A second grab must release the first, never silently orphan it.
     const held = state.player.carryingBagId;
@@ -63,6 +73,12 @@ export function moveBag(state, bag, to, bus = null, simTimeMs = 0) {
 
   if (bus) {
     if (to.type === 'carried') bus.emit(EVENTS.BAG_PICKED_UP, { bagId: bag.id }, simTimeMs);
+    if (to.type === 'cart') {
+      bus.emit(EVENTS.BAG_PLACED_IN_CART, { bagId: bag.id, cartId: to.id }, simTimeMs);
+    }
+    if (from && from.type === 'cart' && to.type !== 'cart') {
+      bus.emit(EVENTS.BAG_TAKEN_FROM_CART, { bagId: bag.id, cartId: from.id }, simTimeMs);
+    }
     if (from && from.type === 'carried' && to.type === 'floor') {
       bus.emit(EVENTS.BAG_RELEASED, { bagId: bag.id, x: bag.x, y: bag.y }, simTimeMs);
     }
@@ -99,6 +115,32 @@ export function assertContainment(state) {
     if (loc.type === 'carried') {
       carriedCount++;
       if (state.player.carryingBagId !== id) bad.push(`${id}: carried but the player is not holding it`);
+    }
+    if (loc.type === 'cart') {
+      const cart = state.cartsById[loc.id];
+      if (!cart) { bad.push(`${id}: in unknown cart ${loc.id}`); continue; }
+      const hits = cart.bagIds.filter((x) => x === id).length;
+      if (hits === 0) bad.push(`${id}: says it is in ${loc.id}, which is not carrying it`);
+      if (hits > 1) bad.push(`${id}: listed in ${loc.id} ${hits} times`);
+      const elsewhere = Object.values(state.cartsById)
+        .filter((c) => c.id !== loc.id && c.bagIds.includes(id));
+      if (elsewhere.length) bad.push(`${id}: also listed in ${elsewhere.map((c) => c.id).join()}`);
+    }
+  }
+
+  for (const cart of Object.values(state.cartsById)) {
+    if (new Set(cart.bagIds).size !== cart.bagIds.length) {
+      bad.push(`${cart.id}: bagIds contains a duplicate`);
+    }
+    if (cart.bagIds.length > cart.capacitySlots) {
+      bad.push(`${cart.id}: holds ${cart.bagIds.length} bags, over its ${cart.capacitySlots} slots`);
+    }
+    for (const id of cart.bagIds) {
+      const bag = state.bagsById[id];
+      if (!bag) { bad.push(`${cart.id}: holds unknown bag ${id}`); continue; }
+      if (bag.location.type !== 'cart' || bag.location.id !== cart.id) {
+        bad.push(`${cart.id}: holds ${id}, but it is located "${bag.location.type}"`);
+      }
     }
   }
 

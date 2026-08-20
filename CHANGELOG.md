@@ -1,5 +1,79 @@
 # Changelog
 
+## Milestone 2 — transport — 2026-08-19
+
+**Exit criterion: a full cart can travel to either gate without state corruption. Met.**
+140 new assertions, 382 total (`tools\test.ps1`).
+
+Built:
+
+- **Carts.** Ten fixed slots, capacity by space AND weight (both bind: ten light bags run
+  out of slots at 90 kg, heavy ones run out of weight at six), a placard the player sets
+  or ignores, and a stability score. Bags in a cart are pinned to slots rather than
+  simulated — GDD §21.6 — which is what makes "arrives without corruption" a property
+  instead of a hope.
+- **`systems/hitching.js`.** Trains are a linked chain with a back-pointer, and
+  `validateChain()` proves the two halves of every link still agree — the GDD §28.1 unit
+  test, run after every hitch, every unhitch, every step of every drive, and live in the
+  debug overlay. It catches one-sided links, a cart towed by two parents, and cycles.
+- **The tractor.** Throttle, brake, reverse that brakes first, and a yaw rate that ramps
+  with speed. The turning RADIUS is a constant 1.7 m below the reference speed and grows
+  to 3.9 m at full tilt — GDD §8.2 ("forgiving turning at low speed", wider arcs when
+  fast) expressed as one formula rather than a table.
+- **Towing by constraint.** Each cart is placed at a fixed distance behind its parent
+  hitch, facing it. A long train cuts corners and swings wide for free, with no solver,
+  and the drawbar cannot stretch: measured worst-case error over a full run to a gate was
+  under 0.02 m.
+- **Spillage.** Lateral load is speed × yaw rate scaled by how full the bed is; sustained
+  load drains stability and an empty tank throws the top bag off the outside of the turn.
+  A spilled bag lands on the ramp, physical and retrievable, and a cooldown stops the
+  cart that just lost it from swallowing it again on the next frame.
+- **The loading verbs.** E at a cart loads the held bag, or takes one back off the top.
+  A thrown bag that lands in a cart is caught by it. F sets the placard on foot, climbs
+  in and out of the tractor, and E hitches or unhitches while driving.
+- **Layout change.** The two marked bays moved from the far side of the sort room up to
+  the belt. At Milestone 1 the carry was ~17 m per bag; with carts as the target that
+  walk is the whole loop and it was far too long. It is now ~7 m — the pressure should
+  come from choosing the right cart and from the drive, not from walking.
+
+Measured, printed by the suite on every run:
+
+| | |
+|---|---|
+| Turning radius | 1.7 m at 1.5 m/s · 1.7 m at 3 m/s · 3.9 m at 7 m/s |
+| Nought to top speed | 1.17 s |
+| A loaded cart to gate 1 / gate 2 | 19.6 s / 20.6 s of driving, 10 of 10 bags delivered |
+| Drawbar stretch over a full run | under 0.02 m |
+| Cart capacity | 10 light bags (slots) · 6 heavy bags, 186 kg (weight) |
+| Three-cart train, driven hard | 11 of 12 aboard, 1 shaken off |
+| Ten bags, full-lock circle at 7 m/s | 9 shaken off |
+| The same circle at 1.2 m/s | 0 spilled |
+| Three loaded carts + 100 loose bags | 0.33 ms per step, against a 16.67 ms budget |
+
+Fixed during the milestone:
+
+- **You could load a bag into a cart and then be unable to get it back out.** A cart is
+  2.4 m long and reach is 1.7 m, so the first slot sits at the far corner, out of range
+  from the side you loaded it from. E with empty hands now takes the top of the pile when
+  nothing specific is in reach — which is how you unload a cart in life too.
+- **Spill was emptying a full cart in about a second** of hard cornering. Softened; one
+  bad corner now costs a bag or two rather than the load. Milestone 6 owns the real
+  balance pass, and these numbers are provisional.
+- **Bags overhung the ends of the cart bed** by about 11 cm. Slot run inset.
+- **The title card still said Milestone 0** and described a game with no bags in it.
+
+Kept clean on purpose:
+
+- The renderer needs to draw a placard, so `setPlacard()` writes a **denormalised display
+  copy** (`placardLabel`, `placardColor`) beside the id. One writer, so it cannot drift,
+  and the renderer still imports no flight data at all.
+- The m0 source-hygiene check was rewritten to test for scoring and schedule LOGIC rather
+  than for the words "score" and "flight". Drawing a flight code on a stand is legitimate
+  and Milestone 3 will have to; computing a departure in the renderer never is.
+
+Not built, on purpose: aircraft, flight state machine, holds, scoring, audio, save.
+
+
 ## Milestone 1 — the bag feels good — 2026-08-18
 
 **Exit criterion: moving and sorting ten bags is reliable and pleasant. Met.**

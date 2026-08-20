@@ -19,10 +19,26 @@ export function createPlayer(spawn) {
 
     carryingBagId: null,       // written only by systems/containment.js
     targetBagId: null,         // what a grab would pick up right now
+    targetCartId: null,        // the cart within reach, if any
+    targetVehicleId: null,     // the vehicle that could be climbed into
+    drivingId: null,           // the vehicle being driven, or null
     charging: false,           // throw charge held
     chargeMs: 0,
-    walkedM: 0,                // travel distance, for the shift report's odd statistics
+    walkedM: 0,                // travel distance, for the shift report odd statistics
   };
+}
+
+/** A carried bag sits in front of the hands. Written every step so it tracks exactly,
+ *  with no spring lag to desynchronise it from the reach test. */
+function pinCarried(state) {
+  const p = state.player;
+  if (!p.carryingBagId) return;
+  const bag = state.bagsById[p.carryingBagId];
+  if (!bag) return;
+  bag.x = p.x + p.aimX * CONFIG.bag.carryOffsetM;
+  bag.y = p.y + p.aimY * CONFIG.bag.carryOffsetM;
+  bag.vx = 0; bag.vy = 0;
+  bag.rot = Math.atan2(p.aimY, p.aimX);
 }
 
 /**
@@ -33,6 +49,22 @@ export function createPlayer(spawn) {
 export function stepPlayer(state, dtSec, input) {
   const p = state.player;
   const P = CONFIG.player;
+
+  // Driving: the player IS the tractor. Keeping the position in lockstep rather than
+  // hiding the player somewhere means the camera, the carried bag and every reach test
+  // keep working unchanged — there is no second "are we driving" case to forget.
+  if (p.drivingId) {
+    const v = state.vehiclesById[p.drivingId];
+    if (v) {
+      p.x = v.x; p.y = v.y;
+      p.vx = v.vx; p.vy = v.vy;
+      p.aimX = Math.cos(v.rot); p.aimY = Math.sin(v.rot);
+    } else {
+      p.drivingId = null;      // defensive: the vehicle vanished, do not strand the player
+    }
+    pinCarried(state);
+    return;
+  }
 
   // Carrying weight is the only thing that changes how the player moves.
   let speedMult = 1;
@@ -68,17 +100,7 @@ export function stepPlayer(state, dtSec, input) {
     p.aimX = ax.x / d; p.aimY = ax.y / d;
   }
 
-  // Where a carried bag sits: in front of the hands. Written every step so the bag
-  // tracks the player exactly, with no spring lag to desynchronise it from the reach.
-  if (p.carryingBagId) {
-    const bag = state.bagsById[p.carryingBagId];
-    if (bag) {
-      bag.x = p.x + p.aimX * CONFIG.bag.carryOffsetM;
-      bag.y = p.y + p.aimY * CONFIG.bag.carryOffsetM;
-      bag.vx = 0; bag.vy = 0;
-      bag.rot = Math.atan2(p.aimY, p.aimX);
-    }
-  }
+  pinCarried(state);
 }
 
 /** Charge fraction 0..1 for the throw meter. */

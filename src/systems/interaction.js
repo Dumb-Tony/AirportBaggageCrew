@@ -1,13 +1,17 @@
-/* Grab, release, throw, scan — GDD §6.1, §7.1, §17.1.
+/* Grab, release, throw, scan, load, drive, hitch — GDD §6.1, §7.1, §8.1, §17.1.
  *
  * The essential verbs, and nothing else. Every one of them is allowed to be WRONG:
- * GDD §31.1.8 forbids blocking a bad action to protect the player's score, so nothing
- * below refuses an input on the grounds that it is a mistake. The scanner warns; it
- * does not veto.
+ * GDD §31.1.8 forbids blocking a bad action to protect the player score, so nothing
+ * below refuses an input on the grounds that it is a mistake. A cart will happily take a
+ * bag that contradicts its own placard. The scanner warns; it does not veto.
  *
- * Binding note (GDD §17.1 flags the conflict itself): E grabs and releases, Space
- * charges and throws. Using the left mouse button for both a tap-grab and a hold-throw
- * made the two indistinguishable until the button came back up.
+ * Bindings (GDD §31.4 lets these be chosen if documented and consistent):
+ *   E  handle the thing in front of you — grab, put down, load into a cart, take out of
+ *      a cart; and while driving, hitch or unhitch.
+ *   F  get in or out of a vehicle; on foot beside a cart, set its placard.
+ *   Space  hold to charge a throw, release to throw. GDD §17.1 flags the conflict that
+ *      arises if grab and throw share the mouse, so they are split.
+ *   Q  scan.
  */
 
 import { CONFIG } from '../config.js';
@@ -15,11 +19,19 @@ import { EVENTS } from '../core/eventBus.js';
 import { moveBag } from './containment.js';
 import { recordScan, weightOf } from '../entities/bag.js';
 import { padAt } from '../data/airport.js';
+import { FLIGHT_DEFS } from '../data/flights.js';
 import { chargeFrac } from '../entities/player.js';
+import { cartContains, cartRoomFor, nextPlacard } from '../entities/cart.js';
+import { dismountPoint } from '../entities/tractor.js';
+import { hitchCandidate, hitch, unhitchTail, trainOf } from './hitching.js';
 
-/** Bags you can reach out and take: loose on the floor, or riding past on the belt. */
+const FLIGHT_IDS = FLIGHT_DEFS.map((f) => f.id);
+
+/** Bags you can reach out and take: loose, riding the belt, or sitting in a cart. */
 const isTargetable = (bag) =>
-  bag.location.type === 'floor' || bag.location.type === 'conveyor';
+  bag.location.type === 'floor' ||
+  bag.location.type === 'conveyor' ||
+  bag.location.type === 'cart';
 
 /**
  * Nearest reachable bag, biased toward where the player is aiming, so that facing a
@@ -48,9 +60,40 @@ export function findTarget(state, grid) {
   return best;
 }
 
+/** The cart the player is standing at, if any. Reach expands the cart footprint. */
+export function findCart(state) {
+  const p = state.player;
+  let best = null, bestD = Infinity;
+  for (const cart of Object.values(state.cartsById)) {
+    if (!cartContains(cart, p.x, p.y, CONFIG.player.reachM)) continue;
+    const d = Math.hypot(cart.x - p.x, cart.y - p.y);
+    if (d < bestD) { bestD = d; best = cart; }
+  }
+  return best;
+}
+
+/** The vehicle the player could climb into. */
+export function findVehicle(state) {
+  const p = state.player;
+  let best = null, bestD = CONFIG.tractor.enterRangeM;
+  for (const v of Object.values(state.vehiclesById)) {
+    if (v.driverId) continue;
+    const d = Math.hypot(v.x - p.x, v.y - p.y);
+    if (d < bestD) { bestD = d; best = v; }
+  }
+  return best;
+}
+
 export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
   const p = state.player;
-  p.targetBagId = findTarget(state, grid);
+  const driving = p.drivingId ? state.vehiclesById[p.drivingId] : null;
+
+  // What the player could act on right now. The HUD and renderer read these; they are
+  // recomputed every step so a prompt can never describe a bag that has moved on.
+  p.targetBagId = driving ? null : findTarget(state, grid);
+  const cart = driving ? null : findCart(state);
+  p.targetCartId = cart ? cart.id : null;
+  p.targetVehicleId = driving ? null : (findVehicle(state) || {}).id || null;
 
   // scan card lifetime
   if (state.scan && simTimeMs - state.scan.atMs > CONFIG.interaction.scanCardMs) {
@@ -58,15 +101,54 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
   }
   if (!input) return;
 
-  /* ── grab / release (E) ───────────────────────────────────────────────── */
+  /* ── F: in, out, or set a placard ─────────────────────────────────────── */
+  if (input.wasPressed('interact')) {
+    if (driving) {
+      exitVehicle(state, bus, simTimeMs);
+    } else {
+      const veh = findVehicle(state);
+      if (veh) enterVehicle(state, veh, bus, simTimeMs);
+      else if (cart) setPlacard(state, cart, nextPlacard(cart.placardFlightId, FLIGHT_IDS), bus, simTimeMs);
+    }
+  }
+
+  /* ── driving: E hitches and unhitches, and that is the whole verb set ─── */
+  if (p.drivingId) {
+    const v = state.vehiclesById[p.drivingId];
+    if (v && input.wasPressed('grab')) {
+      const candidate = hitchCandidate(state, v);
+      if (candidate) hitch(state, v, candidate, bus, simTimeMs);
+      else unhitchTail(state, v, bus, simTimeMs);
+    }
+    return;
+  }
+
+  /* ── E: grab, put down, load, unload ──────────────────────────────────── */
   if (input.wasPressed('grab')) {
     if (p.carryingBagId) {
-      releaseHeld(state, bus, simTimeMs);
-    } else if (p.targetBagId) {
-      const bag = state.bagsById[p.targetBagId];
+      // Standing at a cart with a bag in hand means "load it", which is the whole
+      // sorting verb. Falling through to a floor drop when the cart is full is
+      // deliberate: the game never refuses the action, it just cannot fit it.
+      const held = state.bagsById[p.carryingBagId];
+      if (cart && held && cartRoomFor(cart, state, held).ok) {
+        loadIntoCart(state, held, cart, bus, simTimeMs);
+      } else {
+        releaseHeld(state, bus, simTimeMs);
+      }
+    } else {
+      // Unloading takes the TOP of the pile when nothing specific is in reach. A cart is
+      // 2.4 m long and reach is 1.7 m, so the far slots are genuinely unreachable from
+      // one side — without this you could load a bag and then be unable to get it back
+      // out without walking round the cart. You grab off the top of a stack in real life
+      // too; picking a specific buried bag is not a verb this game wants.
+      let bag = p.targetBagId ? state.bagsById[p.targetBagId] : null;
+      if (!bag && cart && cart.bagIds.length) {
+        bag = state.bagsById[cart.bagIds[cart.bagIds.length - 1]];
+      }
       if (bag) {
         bag.vx = 0; bag.vy = 0;
         moveBag(state, bag, { type: 'carried', id: p.id }, bus, simTimeMs);
+        bag.cartCooldownMs = simTimeMs + CONFIG.cart.reentryCooldownMs;
       }
     }
   }
@@ -90,6 +172,59 @@ export function stepInteraction(state, dtSec, input, bus, simTimeMs, grid) {
     if (id) scanBag(state, state.bagsById[id], bus, simTimeMs);
   }
 }
+
+/* ── vehicles ────────────────────────────────────────────────────────────── */
+
+export function enterVehicle(state, vehicle, bus = null, simTimeMs = 0) {
+  const p = state.player;
+  if (vehicle.driverId) return false;
+  vehicle.driverId = p.id;
+  p.drivingId = vehicle.id;
+  p.vx = 0; p.vy = 0;
+  if (bus) bus.emit(EVENTS.VEHICLE_ENTERED, { vehicleId: vehicle.id }, simTimeMs);
+  return true;
+}
+
+export function exitVehicle(state, bus = null, simTimeMs = 0) {
+  const p = state.player;
+  const v = state.vehiclesById[p.drivingId];
+  if (!v) { p.drivingId = null; return false; }
+
+  const spot = dismountPoint(v);
+  p.x = spot.x; p.y = spot.y;
+  p.vx = 0; p.vy = 0;
+  v.driverId = null;
+  // A vehicle nobody is driving does not roll away on its own.
+  v.speed = 0; v.yawRate = 0; v.vx = 0; v.vy = 0;
+  p.drivingId = null;
+  if (bus) bus.emit(EVENTS.VEHICLE_EXITED, { vehicleId: v.id }, simTimeMs);
+  return true;
+}
+
+/* ── carts ───────────────────────────────────────────────────────────────── */
+
+export function loadIntoCart(state, bag, cart, bus = null, simTimeMs = 0) {
+  bag.vx = 0; bag.vy = 0;
+  moveBag(state, bag, { type: 'cart', id: cart.id }, bus, simTimeMs);
+  state.player.charging = false;
+  state.player.chargeMs = 0;
+  return bag;
+}
+
+/** GDD §8.1: placards are set or ignored by the player. Nothing validates them, and
+ *  nothing stops a cart labelled ATLANTA from being full of Chicago. */
+export function setPlacard(state, cart, flightId, bus = null, simTimeMs = 0) {
+  const flight = FLIGHT_DEFS.find((f) => f.id === flightId) || null;
+  cart.placardFlightId = flightId;
+  // Display copies written here and nowhere else, so the renderer never needs to know
+  // what a flight is.
+  cart.placardLabel = flight ? flight.destinationCode : null;
+  cart.placardColor = flight ? flight.tag.color : null;
+  if (bus) bus.emit(EVENTS.CART_PLACARD_SET, { cartId: cart.id, flightId }, simTimeMs);
+  return cart;
+}
+
+/* ── bags in hand ────────────────────────────────────────────────────────── */
 
 /** Put the held bag down where the hands are, with no velocity. */
 export function releaseHeld(state, bus, simTimeMs) {
@@ -117,6 +252,8 @@ export function throwHeld(state, bus, simTimeMs) {
   bag.vy = p.aimY * speed + p.vy * 0.5;
   p.charging = false; p.chargeMs = 0;
 
+  // A thrown bag may land in a cart — that is the point. Clear the cooldown so it can.
+  bag.cartCooldownMs = 0;
   moveBag(state, bag, { type: 'floor' }, bus, simTimeMs);
   if (bus) bus.emit(EVENTS.BAG_THROWN, { bagId: bag.id, speed }, simTimeMs);
   return bag;
@@ -127,24 +264,33 @@ export function throwHeld(state, bus, simTimeMs) {
  * the tag and tells you what it says. It never moves the bag, never blocks a placement,
  * and never corrects a mistake — it only makes the mistake knowable.
  *
- * The verdict compares where the bag is STANDING to where it BELONGS, which is why it
- * can already say "wrong" at Milestone 1: the staging pads are gated by gate id.
+ * The verdict compares where the bag IS to where it BELONGS. In a cart that means the
+ * cart placard; on the floor it means the marked bay it is standing on.
  */
 export function scanBag(state, bag, bus, simTimeMs) {
   if (!bag) return null;
 
-  const pad = bag.location.type === 'floor' ? padAt(bag.x, bag.y) : null;
   let verdict = 'neutral';
-  if (pad) verdict = pad.gateId === bag.gateId ? 'correct' : 'wrong';
+  let where = bag.location.type;
 
-  recordScan(bag, simTimeMs, pad ? pad.id : bag.location.type, state.player.id);
+  if (bag.location.type === 'cart') {
+    const cart = state.cartsById[bag.location.id];
+    where = cart ? cart.id : where;
+    if (cart && cart.placardFlightId) {
+      verdict = cart.placardFlightId === bag.flightId ? 'correct' : 'wrong';
+    }
+  } else if (bag.location.type === 'floor') {
+    const pad = padAt(bag.x, bag.y);
+    if (pad) {
+      where = pad.id;
+      verdict = pad.gateId === bag.gateId ? 'correct' : 'wrong';
+    }
+  }
 
-  state.scan = {
-    bagId: bag.id,
-    atMs: simTimeMs,
-    verdict,
-    padId: pad ? pad.id : null,
-  };
+  recordScan(bag, simTimeMs, where, state.player.id);
+  state.scan = { bagId: bag.id, atMs: simTimeMs, verdict, where };
   if (bus) bus.emit(EVENTS.BAG_SCANNED, { bagId: bag.id, verdict }, simTimeMs);
   return state.scan;
 }
+
+export { trainOf };
