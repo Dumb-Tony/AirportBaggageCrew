@@ -263,6 +263,20 @@ the difference driving. Shorten the haul before touching the timetable again.
 - **`X` is the recover action (GDD §24.3), and it is a LOCAL unstick.** It never moves
   you toward where you were going: the drive to the gate is the game, and an escape hatch
   that shortened it would be a movement ability. It does nothing when nothing is stuck.
+- ⚠ **`recoverStuck` must RE-SEAT THE TRAIN before it returns**, because its pushes are
+  teleports and it runs LATER in the step than `updateTrain`. Without that, the next
+  step's constraint snap is differenced as motion and one press of `X` throws a bag off a
+  train standing perfectly still — measured, stability 1 and 3 aboard became stability
+  0.875 and 2 aboard with nobody touching the throttle. `updateTrain(state, v, 0)` is the
+  fix and `dtSec = 0` is the point: the whole stability model is inside `if (dtSec > 0)`,
+  so it places the carts and skips the differencing. This is the SECOND call site of the
+  `pushOutOfWalls` rule below; when you add a third, re-seat there too.
+- **The recover verb is unreachable in ordinary play, by design.** 5392 fuzzed presses
+  across four full shifts un-stuck exactly zero things, because `moveWithWalls` never
+  commits a move into geometry. That is correct behaviour and it means every path inside
+  `recoverStuck` is only reachable from a MANUFACTURED state — which is why the bug above
+  survived. `tools/_invariants.js` `recoverFuzz()` wedges things on purpose for that
+  reason; a verb the fuzzer cannot reach is a verb the fuzzer is not testing.
 - **Anything POSITIONED rather than moved must be pushed out of walls.** `moveWithWalls`
   only commits a move whose destination is clear and never updates position while
   blocked, so an entity that ends up inside geometry can never leave — which reads as
@@ -460,6 +474,16 @@ the difference driving. Shorten the haul before touching the timetable again.
 - **§11.1 "Correct bag left loose on dangerous ramp area: optional small penalty"** —
   "correct" reads like a typo; any loose bag on a live movement area is the hazard.
   Confirm at M4.
+- **`audio.js` `play()` still mixes the decision with the plumbing.** `if (!this.armed)
+  return recipe;` sits above `this._pos(e.x, e.y)` and the whole part loop, so every line
+  that reads a field off the event is on the wrong side of the seam the rest of the file
+  respects. Extracting a pure `recipeFor(cue, e)` / `partsFor(cue, e, pos)` would put the
+  field-reading half beside `mixFor` and `CUES`, and m5 H3 could drop its stand-in
+  AudioContext. NOT DONE, deliberately: the coverage gap that justified it is already
+  closed — H3 now arms the probe through the real `arm()` against a stand-in and fires
+  every cue through `bus.emit`, so the field-reading path genuinely runs. What is left is
+  tidiness, and it is not worth churning a green audio subsystem for. Do it when
+  something else needs to change in there.
 
 ## The look: oblique 2.5D (2026-08-19)
 
