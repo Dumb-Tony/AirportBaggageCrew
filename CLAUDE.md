@@ -63,7 +63,10 @@ Dev-wide catalog of what already exists and where to copy it from.
   telemetry from it. It found the game unwinnable: 32% delivered and a five-figure
   deficit on every seed at every skill. Three fixes (a loaded cart in reach now beats
   the hold when TAKING a bag; 50 bags → 34; every window +45%, shift 8:07 → 11:32) took
-  a competent crew to **76% and +1633 points**, a careless one to 30% and −2467.
+  a competent crew to **79% and +1850 points**, a careless one to 29% and −2800.
+  (Those are MEDIANS across three seeds. The gating assertions used to run one seed, so a
+  tuning change that shifted seed 12345 by sixteen points would have flipped a claim
+  about the whole game.)
   `tools/m6-tests.js` is GDD §29 made executable, with four criteria reported OPEN
   because they need external playtesters. Measured: 124 bags and three loaded carts cost
   0.079 ms per step, 210x frame-budget headroom; zero dead ends and zero unreachable

@@ -230,7 +230,7 @@ no program can stand in for a person:
 - pressure comes from overlapping simple work, not confusing controls
 
 The closest a test gets is section D, which plays whole shifts with a bot driving the
-real input path. It shows a competent crew clearing 76% and finishing in credit, and a
+real input path. It shows a competent crew clearing 79% and finishing in credit, and a
 careless one going backwards — but it cannot tell you whether the game *teaches* that.
 
 ## What the suites measure
@@ -278,8 +278,8 @@ through the real input path, three seeds each:
 
 | | |
 |---|---|
-| A competent crew | 76% of bags delivered, +1633 points |
-| A careless one | 30%, −2467 points |
+| A competent crew | 79% of bags delivered, +1850 points (median of 3 seeds) |
+| A careless one | 29%, −2800 points (median of 3 seeds) |
 | Before the balance pass | 32% and −4000 points, on every seed, at every skill |
 | The authored shift | 34 bags across 3 flights, 11:32 |
 | Time to first bag aboard | 182 s |
