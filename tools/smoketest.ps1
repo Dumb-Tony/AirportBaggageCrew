@@ -12,17 +12,28 @@
 #   .\tools\smoketest.ps1                          run the milestone-0 suite
 #   .\tools\smoketest.ps1 -Tests tools\m1-tests.js -Keep
 param(
-  [string]$Tests = "tools\m0-tests.js",
-  [string]$Game  = "index.html",
-  [int]$Port     = 8379,
+  [string]$Tests   = "tools\m0-tests.js",
+  [string]$Game    = "index.html",
+  [int]$Port       = 8379,
+  # GDD M6 asks for cross-browser testing. -Browser edge runs the same suite in Edge.
+  # HONEST LIMIT: Edge is Chromium, so this catches profile, policy and build differences
+  # and nothing about a different ENGINE. No Gecko or WebKit runtime exists on this
+  # machine, so Firefox and Safari remain genuinely untested — see README.
+  [ValidateSet("chrome", "edge")][string]$Browser = "chrome",
   [switch]$Keep
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 
-$chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-if (-not (Test-Path $chrome)) { $chrome = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" }
-if (-not (Test-Path $chrome)) { Write-Host "Chrome not found." -ForegroundColor Red; exit 2 }
+if ($Browser -eq "edge") {
+  $chrome = "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+  if (-not (Test-Path $chrome)) { $chrome = "C:\Program Files\Microsoft\Edge\Application\msedge.exe" }
+  if (-not (Test-Path $chrome)) { Write-Host "Edge not found." -ForegroundColor Red; exit 2 }
+} else {
+  $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+  if (-not (Test-Path $chrome)) { $chrome = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" }
+  if (-not (Test-Path $chrome)) { Write-Host "Chrome not found." -ForegroundColor Red; exit 2 }
+}
 
 $gamePath = Join-Path $root $Game
 $testPath = Join-Path $root $Tests

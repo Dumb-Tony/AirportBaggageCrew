@@ -123,6 +123,20 @@ the dumped DOM. Exit 0 means green.
 tools\test.ps1 -Only m6
 ```
 
+All 1085 assertions also pass under Edge:
+
+```bash
+tools\test.ps1 -Browser edge
+```
+
+⚠ **That is not real cross-browser coverage and should not be read as any.** Edge is
+Chromium; the run catches build, profile and policy differences and nothing whatever about
+a different **engine**. There is no Gecko or WebKit runtime on this machine, so **Firefox
+and Safari are genuinely untested.** What the code does have instead is a feature-detection
+assertion (m6 section G) for every browser API it depends on — Canvas 2D, ES modules, rAF,
+`roundRect`, `createPattern`, WebAudio and localStorage — and the last two are handled when
+absent rather than assumed present.
+
 Diagnostics, which measure rather than gate:
 
 ```bash
@@ -297,11 +311,23 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   reported OPEN by the m6 suite rather than assumed green — see *Phase 1 acceptance*
   above. Everything a program can check does pass; whether the game *teaches* what it
   needs to is the one thing still genuinely unknown, and it is the top of the list.
-- **The balance is one bot's opinion.** 76% for a competent crew is measured, but it is
-  measured against a policy I wrote: park the train on the hold door, fill one cart at
-  the belt, one flight at a time. A human who plays differently will get different
-  numbers, and the "veteran" profile already does worse than the "average" one because
-  hauling at six bags costs more trips than it saves.
+- **The balance is one bot's opinion.** 79% for a competent crew is measured, but it is
+  measured against a policy I wrote: park the train on the hold door, fill one cart at the
+  belt, one flight at a time, **and tow one cart at a time**. That last one matters most.
+  The game has supported trains of up to sixteen carts since Milestone 2 — the m2 suite
+  drives a three-cart one to the gate — and the bot has never used them. So the telemetry's
+  "the bottleneck is trips to the gate" is a statement about the **policy**, not about the
+  game: a human who couples two carts pays the sixty-metre run once instead of twice.
+
+  I tried teaching the bot to couple up, and reverted it. Three policies, each worse than
+  the single-cart baseline. Requiring two full carts at once never triggers, because the
+  crew fills whichever cart the next bag off the belt belongs to and one is always well
+  ahead of the other. Lowering the bar for the second cart made it shed and re-couple 591
+  times in a shift, because a cart dropped while stationary sits inside hitch range and
+  gets picked straight back up. Never shedding at all leaves the first cart coupled
+  forever and drops the run count to one. Multi-cart hauling needs a genuinely different
+  cart-management design **in the bot**, which is instrument work rather than game work.
+  **The number to beat is 79%.**
 - **Spill tuning is still provisional.** A full-lock circle at top speed empties a cart.
   The bot sheds about four bags a shift and takes 23 corners above the safe speed, so it
   is not free — but nobody has decided whether that is the right price.
