@@ -106,7 +106,7 @@ function lineUpBehind(g, cart, headingRad = 0) {
  * the real input abstraction, so the route, the walls and the trailer constraint are all
  * genuinely exercised — a teleport would prove nothing about the door being wide enough.
  */
-function driveTo(g, input, tx, ty, maxFrames = 2400) {
+function driveTo(g, input, tx, ty, maxFrames = 2400, label = '') {
   const v = g.state.vehiclesById.tractor_1;
   let i = 0;
   for (; i < maxFrames; i++) {
@@ -125,6 +125,25 @@ function driveTo(g, input, tx, ty, maxFrames = 2400) {
   input._debugRelease('KeyW');
   input._debugRelease('KeyA');
   input._debugRelease('KeyD');
+
+  /*
+   * RUNNING OUT OF FRAMES IS ITS OWN FAILURE, and it says so here.
+   *
+   * Returning quietly at the cap turns "the train reached the stand" into "the train got
+   * as far as forty seconds of driving allowed". The assertion that then goes red is
+   * `E.gateN.2 arrived < 3.0`, reporting a distance — which reads as a routing or geometry
+   * problem when the likeliest cause is a handling change that made the tractor ten percent
+   * slower. This only speaks when it trips, so a green run neither gains an assertion nor
+   * loses one; when it trips it names the real cause and every measurement taken after it.
+   */
+  if (i >= maxFrames) {
+    const left = Math.hypot(tx - v.x, ty - v.y);
+    ok(`driveTo${label ? ` (${label})` : ''} reached its target inside its frame budget`, false,
+       `ran out after ${maxFrames} frames = ${(maxFrames / 60).toFixed(1)} s of driving, still ` +
+       `${left.toFixed(2)} m short of ${tx.toFixed(1)},${ty.toFixed(1)}; stopped at ` +
+       `${v.x.toFixed(1)},${v.y.toFixed(1)} doing ${v.speed.toFixed(2)} m/s. EVERY distance ` +
+       `measured after this is measured from where it ran out, not from the target.`);
+  }
   return i;
 }
 
@@ -379,12 +398,30 @@ lines.push('--- D. arcade driving (GDD 8.2, 17.1) ---');
   t3.x = 60; t3.y = 6; t3.rot = -Math.PI / 2;      // straight at the north perimeter
   const inp3 = new Input(window);
   inp3._debugPress('KeyW');
-  drive(g3, 300, inp3);
+  // Sample the run rather than only its last frame: "scrubbed" is a claim about a CHANGE,
+  // so it needs the speed the tractor was carrying before it arrived.
+  let peakSpeed = 0;
+  for (let i = 0; i < 300; i++) {
+    g3.frame(FRAME_MS, inp3);
+    peakSpeed = Math.max(peakSpeed, Math.abs(t3.speed));
+  }
   ok('D13 the tractor cannot drive through a wall', !isBlocked(t3.x, t3.y, 0),
      `${t3.x.toFixed(1)},${t3.y.toFixed(1)}`);
+  ok('D13a and it was genuinely moving when it got there', peakSpeed > 1,
+     `${peakSpeed.toFixed(2)} m/s peak`);
+  /*
+   * The old check was `Math.abs(t3.speed) < CONFIG.tractor.maxSpeed`, which a tractor
+   * pinned at 99% of top speed grinding along the perimeter for five seconds passes — the
+   * exact behaviour the comment in tractor.js says the 0.35 scrub exists to prevent. What
+   * the name claims is that the bump TOOK the speed away, so it is measured against what
+   * the tractor was doing before it hit.
+   */
   ok('D14 and the bump scrubbed its speed rather than trapping it',
-     Math.abs(t3.speed) < CONFIG.tractor.maxSpeed);
+     Math.abs(t3.speed) < peakSpeed * 0.3,
+     `${Math.abs(t3.speed).toFixed(3)} m/s at the wall after a peak of ${peakSpeed.toFixed(2)} m/s`);
   ok('D15 the odometer recorded the trip', t3.odometerM > 0, `${t3.odometerM.toFixed(1)} m`);
+  note(`into the north perimeter at ${peakSpeed.toFixed(2)} m/s, left doing ` +
+       `${Math.abs(t3.speed).toFixed(3)} m/s`);
 
   /* getting out */
   const g4 = newGame();
@@ -428,9 +465,9 @@ lines.push('--- E. towing a loaded train (THE EXIT CRITERION) ---');
     };
 
     // out through the sort-room door, then across the ramp to the stand
-    const doorFrames = driveTo(g, input, 37, 23);
+    const doorFrames = driveTo(g, input, 37, 23, 2400, `${label}: loaded cart to the sort-room door`);
     watch();
-    const runFrames = driveTo(g, input, gateAnchor.x, gateAnchor.y);
+    const runFrames = driveTo(g, input, gateAnchor.x, gateAnchor.y, 2400, `${label}: door to the stand`);
     for (let i = 0; i < 30; i++) { g.frame(FRAME_MS, input); watch(); }
 
     const arrived = Math.hypot(v.x - gateAnchor.x, v.y - gateAnchor.y);
@@ -464,7 +501,11 @@ lines.push('--- E. towing a loaded train (THE EXIT CRITERION) ---');
   hitch(g.state, v, cart, g.bus, 0);
 
   const input = new Input(window);
-  driveTo(g, input, 37, 23);
+  driveTo(g, input, 37, 23, 2400, 'six-bag cart to the sort-room door');
+  // Both checks below iterate the load, and an EMPTY cart satisfies both of them: the
+  // worst-slot distance would still be 0 and `[].every()` is true. Prove there is a load
+  // to check before checking it.
+  eq('E0 the cart still has all six bags to check after the drive', cart.bagIds.length, 6);
   let worstSlot = 0;
   for (let i = 0; i < cart.bagIds.length; i++) {
     const bag = g.state.bagsById[cart.bagIds[i]];
@@ -481,9 +522,10 @@ lines.push('--- E. towing a loaded train (THE EXIT CRITERION) ---');
   /* a three-cart train through the door */
   const g5 = newGame();
   const v5 = g5.state.vehiclesById.tractor_1;
+  const trainLoad = [];                     // the exact bags that set off, by id
   for (const id of ['cart_1', 'cart_2', 'cart_3']) {
     const c = g5.state.cartsById[id];
-    fillCart(g5, c, 4, { weightClass: 'light' });
+    trainLoad.push(...fillCart(g5, c, 4, { weightClass: 'light' }));
     c.hitchedToId = null; c.nextCartId = null;
   }
   lineUpBehind(g5, g5.state.cartsById.cart_2, 0);
@@ -494,19 +536,34 @@ lines.push('--- E. towing a loaded train (THE EXIT CRITERION) ---');
   g5.state.cartsById.cart_3.x = g5.state.cartsById.cart_2.x - 4;
   hitch(g5.state, v5, g5.state.cartsById.cart_3, g5.bus, 0);
   eq('E3 a three-cart train assembles', trainOf(g5.state, v5).length, 3);
+  eq('E3a carrying twelve bags between them', trainLoad.length, 12);
 
   const inp5 = new Input(window);
-  driveTo(g5, inp5, 37, 23);
-  driveTo(g5, inp5, ANCHORS.gate2Hold.x, ANCHORS.gate2Hold.y);
+  driveTo(g5, inp5, 37, 23, 2400, 'three-cart train to the sort-room door');
+  driveTo(g5, inp5, ANCHORS.gate2Hold.x, ANCHORS.gate2Hold.y, 2400, 'three-cart train to gate 2');
   eq('E4 the whole train arrived intact', trainOf(g5.state, v5).length, 3);
   eq('E5 with a sound chain', validateChain(g5.state).length, 0);
   eq('E6 and sound containment', assertContainment(g5.state).length, 0);
-  const stillLoaded = ['cart_1', 'cart_2', 'cart_3']
-    .reduce((n, id) => n + g5.state.cartsById[id].bagIds.length, 0);
-  const spilled = ['cart_1', 'cart_2', 'cart_3']
+
+  /*
+   * COUNT BAGS, NOT EVENTS.
+   *
+   * This was `stillLoaded + spilled === 12` with `spilled` summed from `cart.spills` — an
+   * EVENT COUNTER, not a bag count. One bag shaken off, re-absorbed by the cart once its
+   * cooldown lapsed (section F proves that happens) and shaken off again makes that sum 13
+   * with nothing whatsoever wrong, and 11 would have gone unnoticed if two spills landed on
+   * one bag. The twelve bags that set off are tracked by id instead, and each one is now
+   * somewhere: in a cart or on the ramp, which is the whole claim.
+   */
+  const at = (id) => g5.state.bagsById[id].location.type;
+  const stillLoaded = trainLoad.filter((id) => at(id) === 'cart').length;
+  const onRamp = trainLoad.filter((id) => at(id) === 'floor').length;
+  eq('E7 every one of the twelve bags is still either in a cart or on the ramp',
+     stillLoaded + onRamp, trainLoad.length);
+  const spillEvents = ['cart_1', 'cart_2', 'cart_3']
     .reduce((n, id) => n + g5.state.cartsById[id].spills, 0);
-  eq('E7 every bag is still either in a cart or on the ramp', stillLoaded + spilled, 12);
-  note(`three-cart train: ${stillLoaded} of 12 still aboard, ${spilled} shaken off en route`);
+  note(`three-cart train: ${stillLoaded} of 12 still aboard, ${onRamp} on the ramp ` +
+       `(${spillEvents} spill events — a bag can be shaken off more than once)`);
 }
 }
 
@@ -519,7 +576,7 @@ lines.push('--- F. spillage (GDD 6.4, 10.2) ---');
     const g = newGame();
     const v = g.state.vehiclesById.tractor_1;
     const cart = g.state.cartsById.cart_2;
-    fillCart(g, cart, bags, { weightClass: 'light' });
+    const loaded = fillCart(g, cart, bags, { weightClass: 'light' });
     // out on the open ramp, where there is room to go round
     cart.x = 90; cart.y = 35; cart.rot = 0;
     lineUpBehind(g, cart, 0);
@@ -528,18 +585,35 @@ lines.push('--- F. spillage (GDD 6.4, 10.2) ---');
 
     const input = new Input(window);
     input._debugPress('KeyD');
-    for (let i = 0; i < frames; i++) { v.speed = speed; g.frame(FRAME_MS, input); }
-    return { g, cart, onFloor: Object.values(g.state.bagsById).filter((b) => b.location.type === 'floor').length };
+    // Sample the stability WHILE the corner is being taken. Read only at the end it says
+    // nothing about draining, because by then the cart has already recovered.
+    let drainFrame = -1, spillFrame = -1;
+    for (let i = 0; i < frames; i++) {
+      v.speed = speed;
+      g.frame(FRAME_MS, input);
+      if (drainFrame < 0 && cart.stability < 1) drainFrame = i;
+      if (spillFrame < 0 && cart.spills > 0) spillFrame = i;
+    }
+    // The bags this cart set off with, counted BY ID at the end. `cart.spills` is an
+    // event counter — one bag shaken off, re-absorbed once its cooldown lapses (F8 proves
+    // that happens) and shaken off again is two spills and one bag — so it can answer
+    // "did the cart lurch?" and must never be used to answer "where are the bags?".
+    const at = (id) => g.state.bagsById[id].location.type;
+    return { g, cart, drainFrame, spillFrame, loaded,
+             inCart: loaded.filter((id) => at(id) === 'cart').length,
+             onRamp: loaded.filter((id) => at(id) === 'floor').length };
   }
 
   const fast = circle(CONFIG.tractor.maxSpeed);
   ok('F1 hard cornering at speed throws bags off the cart', fast.cart.spills > 0,
      `${fast.cart.spills} spills`);
   eq('F2 a spilled bag is on the ramp, not deleted',
-     fast.cart.bagIds.length + fast.cart.spills, 10);
-  ok('F3 spilled bags are physically there to be picked up', fast.onFloor >= fast.cart.spills);
+     fast.inCart + fast.onRamp, 10);
+  ok('F3 spilled bags are physically there to be picked up', fast.onRamp > 0,
+     `${fast.onRamp} of the ten are on the ramp, ${fast.inCart} still aboard`);
   eq('F4 spilling never corrupts containment', assertContainment(fast.g.state).length, 0);
-  note(`ten bags, hard circle at ${CONFIG.tractor.maxSpeed} m/s: ${fast.cart.spills} shaken off`);
+  note(`ten bags, hard circle at ${CONFIG.tractor.maxSpeed} m/s: ${fast.onRamp} ended on the ramp ` +
+       `(${fast.cart.spills} spill events)`);
 
   const slow = circle(1.2);
   eq('F5 a careful driver spills nothing', slow.cart.spills, 0);
@@ -560,9 +634,27 @@ lines.push('--- F. spillage (GDD 6.4, 10.2) ---');
   drive(g, 5);
   eq('F8 once the cooldown lapses the cart catches it again', bag.location.type, 'cart');
 
-  /* stability must be readable before the spill, not only after */
-  ok('F9 stability drains before it empties', fast.cart.stability <= 1 && fast.cart.stability >= 0,
-     `${fast.cart.stability}`);
+  /*
+   * Stability must be READABLE BEFORE THE SPILL, not only after — that is the whole point
+   * of a stability score rather than a dice roll (GDD §6.4, §10.2): the driver gets a
+   * warning they can act on.
+   *
+   * The old check here was `stability <= 1 && stability >= 0`, which is a restatement of
+   * the two clamp lines in hitching.js and cannot say anything about draining at all. It
+   * would have stayed green with the drain rate set high enough to empty a cart in one
+   * step, which is the failure that would actually ruin the feel. What is asserted now is
+   * the ORDER: the bar starts falling, and only later does a bag go.
+   */
+  ok('F9 stability starts draining before the first bag leaves',
+     fast.drainFrame >= 0 && fast.spillFrame > fast.drainFrame,
+     `stability first fell below 1 at frame ${fast.drainFrame}, first spill at frame ${fast.spillFrame}`);
+  ok('F9a with enough warning to be worth showing',
+     (fast.spillFrame - fast.drainFrame) / 60 > 0.25,
+     `${((fast.spillFrame - fast.drainFrame) / 60).toFixed(2)} s of warning`);
+  ok('F9b and it stays inside the 0..1 the HUD draws it in',
+     fast.cart.stability <= 1 && fast.cart.stability >= 0, `${fast.cart.stability}`);
+  note(`hard corner: stability starts dropping at frame ${fast.drainFrame}, first bag off at ` +
+       `frame ${fast.spillFrame} — ${((fast.spillFrame - fast.drainFrame) / 60).toFixed(2)} s of warning`);
 }
 }
 
@@ -669,8 +761,8 @@ lines.push('--- H. determinism and cost ---');
     enterVehicle(g.state, v, g.bus, 0);
     hitch(g.state, v, cart, g.bus, 0);
     const input = new Input(window);
-    driveTo(g, input, 37, 23);
-    driveTo(g, input, ANCHORS.gate1Hold.x, ANCHORS.gate1Hold.y);
+    driveTo(g, input, 37, 23, 2400, `seed ${seed}: to the sort-room door`);
+    driveTo(g, input, ANCHORS.gate1Hold.x, ANCHORS.gate1Hold.y, 2400, `seed ${seed}: to gate 1`);
     return g;
   }
   const a = scriptedRun(31337), b = scriptedRun(31337);
@@ -708,9 +800,26 @@ lines.push('--- H. determinism and cost ---');
   const t0 = performance.now();
   for (let i = 0; i < 600; i++) perf.frame(FRAME_MS, inp);
   const perStep = (performance.now() - t0) / 600;
-  ok('H6 a laden train plus a hundred loose bags stays well inside the frame budget',
-     perStep < 4, `${perStep.toFixed(3)} ms/step`);
-  note(`three loaded carts + 100 loose bags: ${perStep.toFixed(3)} ms per step (budget ${CONFIG.sim.stepMs.toFixed(2)} ms)`);
+  /*
+   * The GATE is a checked-in baseline, not the frame budget.
+   *
+   * `perStep < 4` against a measured 0.33 ms is TWELVE times the headroom: this scene
+   * could get an order of magnitude slower — every cart bag re-simulated on the floor,
+   * say, or the spatial grid abandoned — and the line would still read PASS. The recorded
+   * figure is the one in CLAUDE.md's M2 entry ("three loaded carts plus 100 loose bags
+   * cost 0.33 ms per step"), and 3x clears the honest run-to-run spread on a machine with
+   * other suites building (0.183, 0.189 and 0.242 measured across three runs) while still
+   * catching anything that actually regresses. The frame budget stays in the note, where
+   * it belongs: it is the number that means something to a reader, not a threshold.
+   */
+  const BASELINE_MS_PER_STEP = 0.33;
+  ok('H6 a laden train plus a hundred loose bags still costs what it was measured to cost',
+     perStep < BASELINE_MS_PER_STEP * 3,
+     `${perStep.toFixed(3)} ms/step against a ${BASELINE_MS_PER_STEP} ms baseline ` +
+     `(gate ${(BASELINE_MS_PER_STEP * 3).toFixed(3)})`);
+  note(`three loaded carts + 100 loose bags: ${perStep.toFixed(3)} ms per step ` +
+       `(budget ${CONFIG.sim.stepMs.toFixed(2)} ms, baseline ${BASELINE_MS_PER_STEP} ms = ` +
+       `${(perStep / BASELINE_MS_PER_STEP).toFixed(2)}x)`);
   eq('H7 and nothing corrupted under load', assertContainment(perf.state).length, 0);
   eq('H8 with the chain intact', validateChain(perf.state).length, 0);
 }
@@ -761,12 +870,39 @@ async function sectionI() {
      /Get out/.test(document.getElementById('hudPrompt').textContent),
      document.getElementById('hudPrompt').textContent);
 
+  /*
+   * The tractor paints — and this compares two renders to say so.
+   *
+   * The old check sampled ONE pixel at the centre of the canvas and asserted `r+g+b > 60`.
+   * The sort-room floor fill alone clears that: delete the tractor sprite outright and the
+   * assertion stays green while naming the vehicle it cannot see. So the centre patch is
+   * captured twice — once with the tractor under the camera and once with it driven off
+   * the map — and what is asserted is that the pixels DIFFER.
+   */
   abc.camera.follow(st.player.x, st.player.y, 0);
+  const cx = Math.floor(renderer.canvas.width / 2), cy = Math.floor(renderer.canvas.height / 2);
+  const patch = () => renderer.ctx.getImageData(cx - 16, cy - 16, 32, 32).data;
+
   renderer.render(st);
-  const px = renderer.ctx.getImageData(
-    Math.floor(renderer.canvas.width / 2), Math.floor(renderer.canvas.height / 2), 1, 1).data;
-  ok('I10 the world paints with the tractor in it', (px[0] + px[1] + px[2]) > 60,
-     `rgb(${px[0]},${px[1]},${px[2]})`);
+  const withTractor = patch();
+  const parked = { x: v.x, y: v.y };
+  v.x = -500; v.y = -500;                 // off the map, leaving only the ground under the camera
+  renderer.render(st);
+  const withoutTractor = patch();
+  v.x = parked.x; v.y = parked.y;         // put it back before anything else reads the world
+  renderer.render(st);
+
+  let differing = 0;
+  for (let i = 0; i < withTractor.length; i++) {
+    if (withTractor[i] !== withoutTractor[i]) differing++;
+  }
+  ok('I10 the world paints with the tractor in it — the floor looks different without it',
+     differing > 0, `${differing} of ${withTractor.length} subpixels differ`);
+  ok('I10a and the canvas is painted rather than left black',
+     (withTractor[0] + withTractor[1] + withTractor[2]) > 60,
+     `rgb(${withTractor[0]},${withTractor[1]},${withTractor[2]})`);
+  note(`the tractor changes ${differing} of ${withTractor.length} subpixels in a 32x32 patch ` +
+       `at the camera centre`);
 
   eq('I11 the live game never violated containment', assertContainment(st).length, 0);
   eq('I12 nor the hitch chain', validateChain(st).length, 0);

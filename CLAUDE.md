@@ -317,15 +317,23 @@ the difference driving. Shorten the haul before touching the timetable again.
 
 ## Gotchas already paid for
 
-- ⚠ **`performance.now()` DOES NOT ADVANCE across synchronous work under this harness.**
-  Timing 240 `render()` calls reported 0.000 ms/frame, and a control loop of three
-  million `Math.sqrt` calls placed beside it reported 0.00 ms too — the clock is frozen
-  by `--virtual-time-budget`, the renderer is not infinitely fast. Any microbenchmark of
-  a synchronous block taken this way is meaningless. The per-step figures the other
-  suites print come from the same clock; they span far longer runs and do report
-  plausible numbers, but do not rest a new assertion on a short timed loop. **Count the
-  WORK instead** — m8 section H censuses canvas operations, which is deterministic,
-  identical on every machine, and closer to the question anyone actually has.
+- ⚠⚠ **`performance.now()` FREEZES INTERMITTENTLY under `--virtual-time-budget`, and a
+  frozen clock reads as INFINITELY FAST.** Timing 240 `render()` calls reported
+  0.000 ms/frame. A control loop of three million `Math.sqrt` calls placed beside it
+  reported 0.00 ms too, which is how you tell a frozen clock from a fast renderer —
+  **always put a known-cost control next to a suspicious zero.** Removing every runtime
+  `fetch` and dynamic `import()` from the suite brought it back (a fetch does poison it:
+  m3's F13 measured a 41,000-step shift as `0.000 ms/step in 0 ms` until its source grep
+  stopped fetching and used `Function.prototype.toString()` instead) — and then the very
+  next run of the unchanged file read zero again, control included. So the fetch is *a*
+  cause, not *the* cause. Do not gate on a short timed loop here: the failure mode points
+  the wrong way and passes any threshold anybody will ever write. **Count the WORK
+  instead** — m8 section H censuses canvas operations and returns byte-identical numbers
+  across runs and across Chrome and Edge. Best available figure, unasserted: a frame is
+  around 6 ms headless with no GPU, dominated by the ground pass.
+- **A runtime `fetch` or `await import()` in a suite poisons the clock for the rest of the
+  page.** Read source with `Function.prototype.toString()` and hoist every import to a
+  static top-level one. m8 says so at its import block; do not "tidy" one back.
 - **Canvas 2D records a display list and rasterises it lazily.** A loop of `render()`
   calls with no read-back never executes; `getImageData` is what forces the pipeline
   through. This is a second, independent reason the naive timing loop above read zero.
@@ -452,6 +460,14 @@ the difference driving. Shorten the haul before touching the timetable again.
 - **§21.1 "runs by opening `index.html`" is impossible with ES modules** (CORS blocks
   module loads on `file://`). Modules won because §21.2's whole architecture rests on
   them. `play.bat` serves over http; the page prints a clear message on `file://`.
+- **§28.1 asks for "save parsing/version migration"; only the parsing half exists.**
+  `src/systems/save.js` rejects any record whose `schemaVersion` differs, so a save from
+  an OLDER build is discarded exactly like a corrupt one and the player's best shift is
+  silently lost at the first schema bump. Left as-is deliberately: the schema has never
+  changed, so a migration path would be speculative infrastructure with nothing to
+  migrate, and writing one now means guessing at a shape that does not exist yet. The
+  BEHAVIOUR is pinned (m4 E9a/E9b) rather than left to drift, so whoever bumps the
+  version will fail a test that tells them what they are about to throw away.
 - **§21.2's `tests/*.test.js` implies a Node runner. There is no Node.js on this box.**
   §31.4 lets Claude choose the runner "provided launch remains simple and offline", so
   the runner is the headless-Chrome PowerShell harness copied from Something's

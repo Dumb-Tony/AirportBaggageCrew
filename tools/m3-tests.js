@@ -76,6 +76,41 @@ const AB = 'flight_AB221', MC = 'flight_MC184';
 const flightOf = (g, id) => g.state.flightsById[id];
 const acOf = (g, id) => g.state.aircraftById[flightOf(g, id).aircraftId];
 
+/* ── reading the schedule's SOURCE ───────────────────────────────────────────
+ *
+ * `stateAt.length === 2` was what A12 and E4 used to check, and it cannot see what a
+ * function READS. Function.length still reports 2 for a `stateAt` that consulted a
+ * module-level mutable, and for `stateAt(times, ms, state = null)` — a default parameter
+ * is not counted. Purity by shape has to be read off the shape, which means reading the
+ * source, in the same form m0 section G greps the renderer.
+ *
+ * It reads it through `Function.prototype.toString()` rather than by fetching the file,
+ * and that is not a shortcut — it is the ONLY way to do it here. A single `fetch` anywhere
+ * earlier in the run makes Chrome's `--virtual-time-budget` stop tracking real elapsed
+ * time for the rest of the page, and F13 below then measures the cost of a whole shift as
+ * `0.000 ms/step in 0 ms` and passes any threshold ever written. Measured: with a fetched
+ * source, 0 ms for 41,000 steps; with this, 0.06 ms per step as before. toString() also
+ * returns the text of the function that is genuinely running, which is the stronger read.
+ *
+ * Comments come off first, and that is not fastidiousness: this is the file whose header
+ * explains that stateAt takes "no state, no player, no bag counts" — a sentence containing
+ * every word the grep forbids. m0 section G learned the same lesson.
+ */
+const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+const stateAtSource = () => strip(stateAt.toString());
+
+/** Everything between the first `{` and its matching `}`. '' when there is no body. */
+function fnBody(src) {
+  const open = src.indexOf('{');
+  if (open < 0) return '';
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) return src.slice(open + 1, i);
+  }
+  return '';
+}
+
 /* ── A. the schedule is a pure function of time ──────────────────────────── */
 function sectionA() {
 lines.push('--- A. the schedule is a pure function of the clock (GDD 5, 31.1.7) ---');
@@ -111,7 +146,12 @@ lines.push('--- A. the schedule is a pure function of the clock (GDD 5, 31.1.7) 
   g.skipMs(400000);
   for (let i = 0; i < 40; i++) makeBag(g, AB);
   eq('A11 the answer does not depend on the world it is asked about', stateAt(t, 123456), a);
-  eq('A12 stateAt takes exactly two arguments, and neither is game state', stateAt.length, 2);
+  // Read off the SIGNATURE in the source, not off `stateAt.length`: a third parameter
+  // with a default — `stateAt(times, ms, state = null)`, the exact way player readiness
+  // would arrive — leaves `.length` reporting 2 and the old assertion green.
+  const sig = /^function\s+stateAt\s*\(([^)]*)\)/.exec(stateAtSource());
+  eq('A12 stateAt takes the authored times and the clock, and no third argument',
+     sig && sig[1].replace(/\s+/g, ''), 'times,simTimeMs');
 
   near('A13 msToNext counts down to the next transition',
        msToNext(t, t.loadingMs - 5000), 5000, 1);
@@ -263,7 +303,12 @@ lines.push('--- D. departure evaluates every expected bag (GDD 5.2) ---');
   eq('D2 every expected bag counted correct', f.outcome.correct, f.expectedCount);
   eq('D3 nothing misrouted', f.outcome.misrouted, 0);
   eq('D4 nothing missed', f.outcome.missed, 0);
-  eq('D5 no double counting', f.outcome.correct + f.outcome.missed, f.expectedCount);
+  /* D5 was `correct + missed === expectedCount`, immediately after D2 said
+   * `correct === expectedCount` and D4 said `missed === 0`. Its two predecessors make it
+   * arithmetically true, so it could never have been the line that went red — it was
+   * counted in the total and paid for nothing. The same shape in F7 IS meaningful and
+   * stays: there both terms are non-trivial over an unattended shift. Left as a gap
+   * rather than renumbered, so D6-D18 still mean what earlier runs printed. */
 
   g.skipMs(CONFIG.flight.pushbackMs + 100);
   eq('D6 once away, the load has left the world', f.state, 'DEPARTED');
@@ -344,9 +389,21 @@ lines.push('--- E. the airport never waits (GDD pillar 1, 31.1.7) ---');
   eq('E2 nor does a swamped one', swamped, idle);
   eq('E3 nor does a perfect one', perfect, idle);
 
-  // Nothing in the schedule source may even mention the player.
+  /*
+   * Nothing in the schedule source may even mention the player — and this now READS the
+   * source to find out. `stateAt.length === 2` was the old check and it was blind to the
+   * only failure that matters: a function of two arguments that quietly consults a
+   * module-level flag has a length of 2 and a state-dependent answer. E1-E3 above are the
+   * behavioural test (three wildly different worlds, one answer); this is the hygiene
+   * one, and between them a flight has nowhere to learn that the crew is not ready.
+   */
+  const body = fnBody(stateAtSource());
+  const leaks = [/\bplayer\b/i, /\bstate\b/, /Date\.now|performance\.now/, /Math\.random/,
+                 /bagsById|loadedBagIds|expectedCount|holdOpen|carryingBagId/]
+    .filter((re) => re.test(body)).map(String);
   ok('E4 the schedule is driven by simTimeMs and the authored times, and by nothing else',
-     stateAt.length === 2);
+     body.trim().length > 0 && leaks.length === 0,
+     body.trim() ? leaks.join(' | ') : 'stateAt has no readable body — the grep read nothing');
 
   /* pause freezes the schedule too — GDD §28.2 */
   const g = newGame();
@@ -458,10 +515,25 @@ lines.push('--- F. THE EXIT CRITERION: a no-input shift completes deterministica
   const shiftMs = perf.state.shift.endTimeMs;
   const steps = shiftMs / CONFIG.sim.stepMs;
   const perStep = ms / steps;
-  ok('F13 a step of the whole airport costs a fraction of a frame', perStep < 1.0,
-     `${perStep.toFixed(3)} ms/step`);
+  /*
+   * The GATE is a checked-in baseline, not the frame budget.
+   *
+   * `perStep < 1.0` against a measured 0.07 ms is fifteen times the headroom: the whole
+   * airport could get an order of magnitude slower and this would stay green, which makes
+   * it a line that reports rather than one that catches. The recorded figure is the one in
+   * CLAUDE.md's M3 entry, and the multiplier has to clear the honest run-to-run spread on
+   * a loaded machine — three runs while three other suites were building measured 0.044,
+   * 0.059 and 0.082 — so it is 4x, not 1.1x. The frame budget stays in the note below,
+   * because that is the number that means something to a reader.
+   */
+  const BASELINE_MS_PER_STEP = 0.07;      // CLAUDE.md, M3: "a step of the whole airport costs 0.07 ms"
+  ok('F13 a step of the whole airport still costs what it was measured to cost',
+     perStep < BASELINE_MS_PER_STEP * 4,
+     `${perStep.toFixed(3)} ms/step against a ${BASELINE_MS_PER_STEP} ms baseline ` +
+     `(gate ${(BASELINE_MS_PER_STEP * 4).toFixed(3)})`);
   note(`a whole shift of airport: ${perStep.toFixed(3)} ms per step ` +
-       `(budget ${CONFIG.sim.stepMs.toFixed(2)} ms), ${ms.toFixed(0)} ms for the lot ` +
+       `(budget ${CONFIG.sim.stepMs.toFixed(2)} ms, baseline ${BASELINE_MS_PER_STEP} ms = ` +
+       `${(perStep / BASELINE_MS_PER_STEP).toFixed(2)}x), ${ms.toFixed(0)} ms for the lot ` +
        `= ${(shiftMs / ms).toFixed(0)}x real time`);
 }
 }
@@ -475,6 +547,18 @@ lines.push('--- G. a shift somebody actually worked ---');
   const g = newGame(1234);
   const st = g.state;
   let delivered = 0;
+  // The bot deliberately puts TWO bags on the wrong aircraft. Without them G4 below read
+  // "nothing was misrouted, because the bot only loaded matching bags" — a result that
+  // followed from the setup and would have survived misrouting being deleted from the
+  // evaluator entirely. GDD §31.1.8 says a wrong load must be allowed; something has to
+  // check that it is also COUNTED.
+  const misloaded = [];
+  // ...and it walks past TWO bags it could have taken. This crew is competent, not
+  // perfect, and without a bag left behind G6 below — "the ones that missed are still on
+  // the ground" — ran `[].every()` over an empty array: measured, this shift ended with
+  // ZERO bags carrying the 'missed' lifecycle, because the only shortfall was arithmetic
+  // (expectedCount minus delivered) rather than a bag anyone could point at.
+  const abandoned = new Set();
 
   const ticks = Math.ceil(st.shift.endTimeMs / 1000) + 2;
   for (let tick = 0; tick < ticks; tick++) {
@@ -488,10 +572,27 @@ lines.push('--- G. a shift somebody actually worked ---');
       for (const bag of Object.values(st.bagsById)) {
         if (moved >= 3) break;
         if (bag.flightId !== flight.id) continue;
+        if (abandoned.has(bag.id)) continue;
         if (bag.location.type !== 'floor' && bag.location.type !== 'conveyor') continue;
+        if (abandoned.size < 2) { abandoned.add(bag.id); continue; }   // never got to these two
         bag.x = z.x; bag.y = z.y;
         moveBag(st, bag, { type: 'aircraftHold', id: ac.id }, g.bus, st.simTimeMs);
         moved++; delivered++;
+      }
+
+      // ...and then, twice in the whole shift, a bag belonging to somebody else.
+      if (misloaded.length < 2) {
+        // Not one of the two it walked past — those have to stay on the ground for G6,
+        // and with two aircraft loading at once this branch was picking them up as
+        // strays and flying them to the wrong city instead.
+        const stray = Object.values(st.bagsById).find((b) =>
+          b.flightId !== flight.id && !abandoned.has(b.id) &&
+          (b.location.type === 'floor' || b.location.type === 'conveyor'));
+        if (stray) {
+          stray.x = z.x; stray.y = z.y;
+          moveBag(st, stray, { type: 'aircraftHold', id: ac.id }, g.bus, st.simTimeMs);
+          misloaded.push({ bagId: stray.id, ownedBy: stray.flightId, loadedOnto: flight.id });
+        }
       }
     }
     if (st.simTimeMs >= st.shift.endTimeMs) break;
@@ -504,17 +605,30 @@ lines.push('--- G. a shift somebody actually worked ---');
   const lost = flights.reduce((n, f) => n + f.outcome.missed, 0);
   ok('G2 a working crew actually delivers bags', got > 20, `${got} of ${owed}`);
   eq('G3 the arithmetic still closes', got + lost, owed);
-  eq('G4 nothing was misrouted, because the bot only loaded matching bags',
-     flights.reduce((n, f) => n + f.outcome.misrouted, 0), 0);
+  eq('G3a the bot found two bags to put on the wrong aircraft', misloaded.length, 2);
+  eq('G4 and both of them were counted as misrouted, not quietly delivered',
+     flights.reduce((n, f) => n + f.outcome.misrouted, 0), misloaded.length);
+  ok('G4a each misloaded bag records the aircraft that actually took it',
+     misloaded.every((m) => st.bagsById[m.bagId].lifecycle === 'misrouted' &&
+                            st.bagsById[m.bagId].actualFlightId === m.loadedOnto),
+     JSON.stringify(misloaded));
   eq('G5 containment held throughout', assertContainment(st).length, 0);
   note(`worked shift: ${got} of ${owed} delivered, ${lost} missed ` +
-       `(${Math.round((got / owed) * 100)}% on-time baggage)`);
+       `(${Math.round((got / owed) * 100)}% on-time baggage), ` +
+       `${misloaded.length} deliberately misloaded, ${abandoned.size} deliberately left behind`);
   void delivered;
 
   // GDD §5.2: bags loaded before closure travel; the rest stay behind, physical.
+  // `[].every()` is true, so the count is asserted first — a shift where the bot happened
+  // to deliver everything would otherwise make G6 a green line about nothing.
   const stranded = Object.values(st.bagsById).filter((b) => b.lifecycle === 'missed');
+  eq('G5a the two bags the crew walked past are classified missed',
+     [...abandoned].filter((id) => st.bagsById[id].lifecycle === 'missed').length, abandoned.size);
+  ok('G5b so there are real missed bags in the world to check',
+     stranded.length > 0, `${stranded.length} missed bags in the world`);
   ok('G6 the ones that missed are still on the ground', stranded.every((b) =>
-     ['floor', 'conveyor', 'cart', 'carried'].includes(b.location.type)));
+     ['floor', 'conveyor', 'cart', 'carried'].includes(b.location.type)),
+     stranded.map((b) => b.location.type).join());
 }
 }
 
@@ -551,12 +665,39 @@ async function sectionH() {
   ok('H9 and is announced as a toast', toasts.classList.contains('on') &&
      /FINAL BAG CALL/.test(toasts.textContent), toasts.textContent.slice(0, 90));
 
+  /*
+   * The aircraft paints — and this compares two renders to say so.
+   *
+   * The old check sampled ONE pixel at the centre of the canvas and asserted
+   * `r+g+b > 60`. The ramp fill alone clears that: delete the aircraft sprite entirely
+   * and the assertion stays green while naming the thing it cannot see. So the centre
+   * region is captured twice, with the aircraft on stand and with it gone, and what is
+   * asserted is that the pixels DIFFER.
+   */
   const ac = st.aircraftById[f.aircraftId];
   camera.follow(ac.x, ac.y, 0);
+  const cx = Math.floor(renderer.canvas.width / 2), cy = Math.floor(renderer.canvas.height / 2);
+  const patch = () => renderer.ctx.getImageData(cx - 16, cy - 16, 32, 32).data;
+
   renderer.render(st);
-  const px = renderer.ctx.getImageData(
-    Math.floor(renderer.canvas.width / 2), Math.floor(renderer.canvas.height / 2), 1, 1).data;
-  ok('H10 the aircraft paints', (px[0] + px[1] + px[2]) > 60, `rgb(${px[0]},${px[1]},${px[2]})`);
+  const withAircraft = patch();
+  ac.present = false;                     // the renderer skips an aircraft that is not on stand
+  renderer.render(st);
+  const withoutAircraft = patch();
+  ac.present = true;                      // put it back before anything else looks at the world
+  renderer.render(st);
+
+  let differing = 0;
+  for (let i = 0; i < withAircraft.length; i++) {
+    if (withAircraft[i] !== withoutAircraft[i]) differing++;
+  }
+  ok('H10 the aircraft paints — the stand looks different with it there',
+     differing > 0, `${differing} of ${withAircraft.length} subpixels differ`);
+  ok('H10a and the canvas is painted rather than left black',
+     (withAircraft[0] + withAircraft[1] + withAircraft[2]) > 60,
+     `rgb(${withAircraft[0]},${withAircraft[1]},${withAircraft[2]})`);
+  note(`aircraft on stand changes ${differing} of ${withAircraft.length} subpixels ` +
+       `in a 32x32 patch at the camera centre`);
 
   game.skipMs(game.state.shift.endTimeMs + 2000);
   hud.update();

@@ -13,8 +13,8 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Phase 1 feature-complete, plus a hardening pass. 1085 assertions green
-across eight suites.**
+**Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
+tests themselves. 1208 assertions green across nine suites.**
 Three flights, thirty-four bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -47,6 +47,21 @@ travels rather than snapping. **All of it derives from simulation values**, so t
 a seed animate identically and pausing freezes the airport mid-stride.
 
 ![Sorting off the belt into the marked cart bays](docs/vis-sortroom.png)
+
+Those bags riding the conveyor are new, and they are a confession. Every bag on the belt
+had been painted *underneath* the belt since Milestone 1 — the belt sorted in front of its
+own cargo — so for six milestones the conveyor rendered as a featureless empty bar in a
+game about bags arriving on a conveyor. The aircraft had been drawn back-to-front over the
+same period, its shadow and gear facing the other way from its fuselage. Both were in the
+screenshots on this page the whole time, and every render assertion in the project stayed
+green, because each one sampled a single pixel at the centre of the canvas and checked it
+was not black — which the ground fill alone satisfies.
+
+`tools\m8-tests.js` replaces that with a differential: render the frame, remove exactly
+one class of thing, render again, and count the pixels that changed. Removing the bags
+from the belt changes 1127 pixels now and changed 0 before. It is the same trick for the
+cart load, for the depth sort, and for whether GDD §16.6's text-size setting reaches the
+canvas — where there is no CSS cascade, so each font has to scale by hand.
 
 ---
 
@@ -115,15 +130,23 @@ that grab and throw conflict if both sit on the mouse, so they are split across 
 tools\test.ps1
 ```
 
-There is no Node.js on this machine, so the test harness *is* a browser: it injects the
-suite into a scratch copy of the page, serves it, drives it in headless Chrome, and greps
-the dumped DOM. Exit 0 means green.
+The test harness *is* a browser: it injects the suite into a scratch copy of the page,
+serves it, drives it in headless Chrome, and greps the dumped DOM. Exit 0 means green.
 
 ```bash
-tools\test.ps1 -Only m6
+tools\test.ps1 -Only m8
 ```
 
-All 1085 assertions also pass under Edge:
+**The runner also enforces an assertion COUNT per suite**, and that is not decoration. A
+green suite only ever proved that the assertions which *ran* passed — it said nothing
+about how many ran. Most of the coverage here loops over a collection (the twenty-four
+event names, the seventeen cue rows, three flights, nine waypoints), and a loop over an
+empty collection contributes zero assertions and stays green; so does a section that
+returns early after a failure. Both drain coverage in total silence. `tools\test.ps1`
+holds a baseline count for each suite and the run fails when the number moves, in either
+direction, which is the moment somebody has to look at it.
+
+All 1208 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -146,6 +169,11 @@ tools\smoketest.ps1 -Tests tools\_raf.js
 ```bash
 tools\shot.ps1 -Setup tools\_shot-m6.js -Out docs\m6-report.png
 ```
+
+Every screenshot in this README has a pose script in `tools\`, including the two hero
+images — which previously did not, and that is precisely how a render bug survived in
+them for six milestones. `_shot-vis-sortroom.js` deliberately stages bags on the belt, so
+a regression shows up *in the picture* rather than merely being absent from it.
 
 And the balance telemetry — GDD §28.4's list, produced by a bot that plays the game
 through the real input path at three skill levels:
@@ -177,14 +205,15 @@ monetisation.
 
 | # | Name | State |
 |---|---|---|
-| 0 | Skeleton and design locks | **done** — 117 assertions |
-| 1 | The bag feels good | **done** — 125 assertions |
-| 2 | Transport — carts, hitching, the tractor | **done** — 140 assertions |
-| 3 | Sacred schedule — flight states, board, departures | **done** — 105 assertions |
-| 4 | Outcomes and pressure — scoring, report, replay | **done** — 113 assertions |
-| 5 | Onboarding and juice — audio, hints, accessibility | **done** — 179 assertions |
-| 6 | Balance and hardening | **done** — 156 assertions |
-| — | Hardening: four adversarial audits, and the coverage they exposed | **done** — 150 assertions |
+| 0 | Skeleton and design locks | **done** — 122 assertions |
+| 1 | The bag feels good | **done** — 143 assertions |
+| 2 | Transport — carts, hitching, the tractor | **done** — 146 assertions |
+| 3 | Sacred schedule — flight states, board, departures | **done** — 109 assertions |
+| 4 | Outcomes and pressure — scoring, report, replay | **done** — 131 assertions |
+| 5 | Onboarding and juice — audio, hints, accessibility | **done** — 190 assertions |
+| 6 | Balance and hardening | **done** — 170 assertions |
+| — | Hardening: four adversarial audits, and the coverage they exposed | **done** — 159 assertions |
+| — | The renderer draws what it claims: differential pixel checks | **done** — 38 assertions |
 
 ### Phase 1 acceptance (GDD §29)
 

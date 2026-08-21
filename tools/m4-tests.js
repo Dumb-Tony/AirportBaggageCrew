@@ -18,7 +18,7 @@ import { validateChain } from '../src/systems/hitching.js';
 import {
   createScore, scoreFlight, stepScoring, buildReport, onTimePercent, verdictFor,
 } from '../src/systems/scoring.js';
-import { SaveSystem, memoryStorage } from '../src/systems/save.js';
+import { SaveSystem, memoryStorage, BEST_KEY, SCHEMA_VERSION } from '../src/systems/save.js';
 import { aircraftHoldZone } from '../src/entities/aircraft.js';
 
 /* ── harness ─────────────────────────────────────────────────────────────── */
@@ -144,6 +144,30 @@ lines.push('--- A. the shift ends (GDD 20.2, 29) ---');
 function sectionB() {
 lines.push('--- B. scoring (GDD 11.1) ---');
 {
+  /*
+   * GDD §11.1's VALUES, pinned — and this is the only place in the project they are.
+   *
+   * Everything below compares the scorer's output against `CONFIG.score`, which is the
+   * same constant the scorer read: change `correctBag` from 100 to 5 and B1-B8 all stay
+   * green while the game quietly stops paying for work. The numbers §11.1 actually names
+   * lived only in the assertion NAMES, where nothing could check them. They are asserted
+   * against literals here, once, so the arithmetic checks below can go on reading `S`.
+   *
+   * If a balance pass moves one of these, it moves HERE first and deliberately — §31.4
+   * licences retuning, §31.1.1 asks for the departure to be reported rather than slipped
+   * in, and a failing line with the GDD section in its name is how that gets noticed.
+   */
+  eq('B0.1 GDD 11.1 a correctly loaded bag is worth 100', S.correctBag, 100);
+  eq('B0.2 GDD 11.1 a priority bag is worth 50 more', S.priorityBonus, 50);
+  eq('B0.3 GDD 11.1 a bag on the wrong aircraft costs 250', S.misroutedBag, -250);
+  eq('B0.4 GDD 11.1 a missed bag costs 150', S.missedBag, -150);
+  eq('B0.5 and the completion bonus is 250', S.perfectFlightBonus, 250);
+  // §20.2 asks for a priority "bonus/penalty" without naming a value, so what is pinned
+  // is the RELATIONSHIP the penalty was built to have: it sits on top of missedBag
+  // exactly as the bonus sits on top of correctBag. Drift in either half shows up here.
+  eq('B0.6 GDD 20.2 the priority miss penalty mirrors the priority bonus',
+     S.priorityMissPenalty, -S.priorityBonus);
+
   // GDD §11.1 values, checked one path at a time against a hand-built outcome.
   function scoreOf(outcome, expectedCount) {
     const st = { score: createScore(), flightsById: {}, cartsById: {}, vehiclesById: {}, stats: {} };
@@ -240,12 +264,30 @@ lines.push('--- C. every path a bag can take (GDD 28.2) ---');
   eq('C14 a bag left in a cart missed its flight', inCart.lifecycle, 'missed');
   eq('C15 and is still in the cart, not deleted', inCart.location.type, 'cart');
 
-  /* 5. still on the belt */
+  /* 5. still on the belt when the aircraft leaves
+   *
+   * This used to sweep an untouched shift for whatever happened to be riding the belt at
+   * the whistle and assert `onBelt.every(...)`. On most seeds that array is EMPTY — the
+   * last bag spawns long before the last departure and a 21 m belt is a 13 s ride — and
+   * `[].every()` is `true`, so the assertion proved nothing and its detail string printed
+   * the count as if the author half-suspected it. The bag is placed deliberately now, and
+   * the precondition that it is genuinely still on the belt is its own assertion.
+   */
   const g5 = newGame(15);
+  const f5 = F(g5, AB);
+  g5.skipMs(f5.times.departureMs - 8000 - g5.state.simTimeMs);
+  const rider = makeBag(g5, AB);
+  moveBag(g5.state, rider, { type: 'conveyor', id: g5.state.world.conveyor.id, t: 0 },
+          g5.bus, g5.state.simTimeMs);
+  g5.skipMs(8200);                                  // past pushback, well inside the ride
+  eq('C16 a bag put on the belt is still riding it when its aircraft leaves',
+     rider.location.type, 'conveyor');
+  ok('C16a and its flight has departed without it', f5.evaluated);
+  eq('C16b a bag still on the belt is classified, not left active', rider.lifecycle, 'missed');
   runToEnd(g5);
+  eq('C16c and the classification stands at the end of the shift', rider.lifecycle, 'missed');
   const onBelt = Object.values(g5.state.bagsById).filter((b) => b.location.type === 'conveyor');
-  ok('C16 bags still riding the belt at the end are classified too',
-     onBelt.every((b) => b.lifecycle === 'missed'), `${onBelt.length} on the belt`);
+  note(`${onBelt.length} bags were still on the belt when the shift ended`);
 
   /* 6. never spawned at all — the timetable still owes it */
   const g6 = newGame(16);
@@ -274,18 +316,52 @@ lines.push('--- D. the shift report (GDD 11.2, 11.3) ---');
 {
   const g = newGame(21);
   loadInto(g, AB, AB, 9, { priority: true });
-  loadInto(g, MC, SK, 2);                       // two Miami bags onto Chicago
+  // Two Miami bags onto Chicago — and PRIORITY ones. §11.2's "priority bags missed" was
+  // the metric nothing in this section ever drove: with no priority bag going astray,
+  // `0` satisfied the old presence check exactly as well as the right answer would have.
+  loadInto(g, MC, SK, 2, { priority: true });
   runToEnd(g);
   const r = g.state.report;
 
-  // GDD §11.2 metrics, all present
+  // GDD §11.2 metrics, all present — and all real NUMBERS. `typeof r[k] === 'number'` is
+  // also true of NaN, which is precisely what a metric derived from a renamed or missing
+  // field looks like, so the presence check now demands a finite one.
   for (const k of ['flightsHandled', 'flightsPerfect', 'bagsExpected', 'correct',
                    'onTimePercent', 'mishandled', 'wrongDestination', 'priorityMissed']) {
-    ok(`D1.${k} the report carries it`, typeof r[k] === 'number', `${r[k]}`);
+    ok(`D1.${k} the report carries it as a real number`, Number.isFinite(r[k]), `${r[k]}`);
   }
   eq('D2 every flight is handled', r.flightsHandled, 3);
   eq('D3 one line per flight', r.lines.length, 3);
   eq('D4 the two strays are reported', r.wrongDestination, 2);
+
+  /*
+   * The VALUES of the other three §11.2 metrics. D5-D9 below check four of the eight
+   * against the hand-built outcome; these are the three that were satisfied by any
+   * number at all, including the wrong one.
+   */
+  eq('D4a nothing was perfect — every flight lost bags', r.flightsPerfect, 0);
+  eq('D4b and the headline agrees with the lines',
+     r.flightsPerfect, r.lines.filter((l) => l.perfect).length);
+
+  // `mishandled` is a count of BAGS. Every bag in the world either flew on its own
+  // aircraft or it did not, so the count is exactly the difference — and it can never be
+  // larger than the shift had bags. Summing `missed + misrouted` instead once printed
+  // "9 delivered" above "27 mishandled" on a 34-bag shift, which is the shape of bug
+  // this line exists to catch.
+  const inWorld = Object.keys(g.state.bagsById).length;
+  eq('D4c mishandled counts every bag that did not fly correctly, exactly once',
+     r.mishandled, inWorld - r.correct);
+
+  const priorityInWorld = Object.values(g.state.bagsById).filter((b) => b.priority).length;
+  const priorityFlown = Object.values(g.state.bagsById)
+    .filter((b) => b.priority && b.lifecycle === 'loaded').length;
+  ok('D4d the two priority bags flown to the wrong city count as priority misses',
+     r.priorityMissed >= 2, `${r.priorityMissed}`);
+  ok('D4e and never more priority bags than the shift actually had',
+     r.priorityMissed <= priorityInWorld - priorityFlown,
+     `${r.priorityMissed} counted, ${priorityInWorld - priorityFlown} priority bags did not fly`);
+  note(`priority bags: ${priorityInWorld} in the shift, ${priorityFlown} flown, ` +
+       `${r.priorityMissed} counted as missed`);
 
   // the arithmetic has to close, or the report is lying
   const owed = r.lines.reduce((n, l) => n + l.expected, 0);
@@ -342,17 +418,56 @@ lines.push('--- E. persistence (GDD 23.1) ---');
 
   const better = save.saveBest({ points: 1500, onTimePercent: 80, correct: 40, bagsExpected: 50,
                                 flightsPerfect: 1, seed: 2, shiftId: 's' });
-  ok('E6 a better one replaces it', better.improved && save.loadBest().points, 1500);
+  /*
+   * `ok(name, cond, detail)`. The third argument is the DETAIL STRING printed on failure,
+   * NOT an expected value — so `ok('E6 ...', better.improved && save.loadBest().points, 1500)`
+   * looked like an equality check and was not one. Worse, it passed in exactly the case it
+   * was written to catch: if the record had NOT been replaced the condition evaluated to
+   * `900`, which is truthy. An expected value belongs in eq(), and the two claims in that
+   * one line are two claims.
+   */
+  ok('E6 a better shift reports that it improved', better.improved, JSON.stringify(better.record));
+  eq('E6a and the stored record really is the better one', save.loadBest().points, 1500);
 
   const tie = save.saveBest({ points: 1500, onTimePercent: 90, correct: 45, bagsExpected: 50,
                               flightsPerfect: 1, seed: 3, shiftId: 's' });
   ok('E7 a tie on points is broken by on-time percentage', tie.improved);
 
-  // corrupt and future records are ignored, never guessed at
-  store.setItem('airport-baggage-crew.best.v1', '{not json');
+  /*
+   * Corrupt, future and PAST records — GDD §28.1 asks for "save parsing/version
+   * migration".
+   *
+   * The key comes from the module rather than being spelled out again here. A hardcoded
+   * key that stopped matching would have made every check below vacuous: `loadBest()`
+   * returns null for a record it cannot find just as readily as for one it refuses, so
+   * all three would still have passed while testing nothing. E7a writes a VALID record
+   * through the same door first, which is what makes the three nulls below mean "refused"
+   * rather than "never seen".
+   */
+  store.setItem(BEST_KEY, JSON.stringify({ schemaVersion: SCHEMA_VERSION, points: 4200 }));
+  eq('E7a a hand-written record at the current version is read back',
+     save.loadBest() && save.loadBest().points, 4200);
+
+  store.setItem(BEST_KEY, '{not json');
   eq('E8 corrupt storage reads as nothing rather than throwing', save.loadBest(), null);
-  store.setItem('airport-baggage-crew.best.v1', JSON.stringify({ schemaVersion: 99, points: 5 }));
+  store.setItem(BEST_KEY, JSON.stringify({ schemaVersion: SCHEMA_VERSION + 98, points: 5 }));
   eq('E9 a record from a future version is ignored', save.loadBest(), null);
+
+  /*
+   * THERE IS NO MIGRATION PATH, and this pins that rather than inventing one.
+   * `loadBest` accepts only `schemaVersion === SCHEMA_VERSION`, so a record written by an
+   * OLDER build is discarded exactly like a corrupt one: the player's best shift is
+   * silently lost at the first schema bump. That is defensible for one small record —
+   * save.js says so in its header, having deliberately dropped TheBenefactors' migration
+   * machinery — but it is a decision, not an accident, and nothing was holding it. These
+   * two lines are what a future `SCHEMA_VERSION = 2` has to walk past on purpose.
+   */
+  store.setItem(BEST_KEY, JSON.stringify({ schemaVersion: SCHEMA_VERSION - 1,
+                                           points: 4200, onTimePercent: 90 }));
+  eq('E9a a record from an OLDER version is dropped, not migrated', save.loadBest(), null);
+  store.setItem(BEST_KEY, JSON.stringify({ points: 4200, onTimePercent: 90 }));
+  eq('E9b and so is an unversioned one, which is what a pre-schema build wrote',
+     save.loadBest(), null);
 
   // storage that refuses must never break a shift
   const hostile = {
