@@ -243,6 +243,31 @@ Budget for re-tuning three phases, not for a four-line patch.
 - **A gate is occupied for longer than acceptance-to-departure.** `standWindow()` widens
   it by the taxi-in and the pushback, and `gateConflicts()` compares THAT. The narrower
   comparison passed while SK307 was arriving before AB221 had left.
+- ⚠ **"COLOUR IS NEVER THE ONLY CHANNEL" IS NOW COMPUTED, NOT BELIEVED** — `src/ui/a11y.js`
+  and `tools/m9-tests.js`. Measured, **6 of 17 signal pairs lose their hue** to at least
+  one colour-vision deficiency, and the game is fine anyway *because* every one of them
+  carries a word or a glyph: the ORD and MIA tags collapse to 8.8 dE under tritanopia
+  (icon + destination code carry it), the scanner's right-vs-wrong verdict to 5.3 dE
+  under deuteranopia (the words plus ✓/✕), and HOLD OPEN vs HOLD CLOSED likewise (the
+  words themselves). That is the design working — but m9 section E proves each named
+  channel is REAL by driving a live scanner card and reading the renderer's own source,
+  so the allowance cannot become a loophole. **If you add a signal, add its group to
+  `SIGNAL_GROUPS` and its redundancy to section E in the same commit.**
+- **The a11y module IMPORTS the palette rather than copying it.** `FLIGHT_DEFS`, `PALETTE`
+  and the live `:root` tokens, never a table of literals. The version this was adapted
+  from (`SmallTownEmergencyServices\src\ui\a11y.js`) keeps literals plus a second test to
+  prove they have not drifted; importing needs neither, and a signal table that names its
+  own entries cannot notice a new one.
+- **Audit a colour at the opacity it is actually rendered at.** `.b-row.st-departed` is
+  `opacity:.55`, which took the rail to 1.87:1 — under WCAG 1.4.11's 3:1 for a non-text
+  indicator. Auditing the token alone would have reported a contrast nobody gets.
+- **Non-text gets 3:1 (1.4.11), text gets 4.5:1 (1.4.3), and the distinction matters.**
+  The departed rail is a 3px border, not text; holding it to the text floor would report
+  the wrong rule at the wrong severity. It failed the correct one too.
+- **The floor surfaces are deliberately NOT a channel** — all six sit between 1.02:1 and
+  1.59:1 of each other. No zone is ever identified by its colour; every one is labelled in
+  words, and m9 E6/E7 assert both halves. That is why the road's lane lines are allowed to
+  sit at 2.36:1 and be declared decorative rather than brightened.
 - **Announcement copy must say what happened in words.** GDD §5.3/§16.3 forbid colour
   being the only differentiator, and the same now goes for sound: every audio cue has a
   visual equivalent, so mute is a preference and not a handicap. Never write a toast whose

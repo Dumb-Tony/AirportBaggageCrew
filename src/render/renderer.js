@@ -42,7 +42,15 @@ export const PALETTE = {
   wall:    '#2b3040',
   wallTop: '#3a4055',
   paint:   '#e9e4d6',
+  // Decorative painted markings — lane lines and the like. Not text, and nothing a
+  // player has to READ, so it is allowed to sit quietly in the tarmac.
   paintDim:'rgba(233,228,214,0.35)',
+  // Painted WAYFINDING TEXT — the gate numbers on the stands. It used to share
+  // `paintDim` and measured 1.93:1 against the stand surface, under WCAG's 3:1 floor for
+  // large text. 0.68 gives 3.24:1 on the stand and more on every other surface it can
+  // fall on. Separated from `paintDim` rather than raising that, because making the road
+  // lane lines a third brighter would be paying for legibility nobody needed.
+  paintLabel:'rgba(233,228,214,0.68)',
   safety:  '#f2c14e',
   grid:    'rgba(255,255,255,0.045)',
   label:   'rgba(233,228,214,0.5)',
@@ -323,8 +331,8 @@ export class Renderer {
       ctx.fillStyle = 'rgba(242,193,78,0.55)';
       ctx.fillText(pad.label, pad.x + pad.w / 2, pad.y + 1.4);
     }
-    // the oversized gate numbers
-    ctx.fillStyle = PALETTE.paintDim;
+    // the oversized gate numbers — wayfinding text, so `paintLabel` and not `paintDim`
+    ctx.fillStyle = PALETTE.paintLabel;
     for (const m of MARKINGS) {
       if (m.kind !== 'stand') continue;
       ctx.font = '700 8px "Baloo 2", "Segoe UI", system-ui, sans-serif';

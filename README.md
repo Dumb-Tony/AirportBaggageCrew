@@ -14,7 +14,7 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1208 assertions green across nine suites.**
+tests themselves. 1317 assertions green across ten suites.**
 Three flights, forty-two bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -71,6 +71,32 @@ one class of thing, render again, and count the pixels that changed. Removing th
 from the belt changes 1127 pixels now and changed 0 before. It is the same trick for the
 cart load, for the depth sort, and for whether GDD §16.6's text-size setting reaches the
 canvas — where there is no CSS cascade, so each font has to scale by hand.
+
+## Colour is never the only channel, and now that is a number
+
+The destination tags are red, blue and green. The GDD says twice that colour must never
+be the only channel; the README said the game obeyed; nothing had ever checked.
+`tools\m9-tests.js` checks — WCAG relative luminance, CIEDE2000 perceptual distance, and
+protanopia/deuteranopia/tritanopia simulation, run over the palette the game actually
+imports rather than a table someone typed into a test.
+
+**Six of seventeen signal pairs lose their hue** to at least one deficiency. The ORD and
+MIA tags fall to 8.8 ΔE under tritanopia; the scanner's *right pad* against *wrong pad*
+falls to 5.3 ΔE under deuteranopia, at 1.46:1 lightness; HOLD OPEN against HOLD CLOSED
+does the same. None of that is visible by reading the hex codes, and none of it is a bug —
+every one of those pairs is carried by a word or a glyph as well, which is the design
+working exactly as the GDD demands. The suite proves each of those channels is real by
+driving a live scanner card and reading the renderer's own source, so "it has a label too"
+cannot quietly become an excuse.
+
+It did find two things to fix. The board's departed row sat at **1.87:1** — its `opacity:.55`
+dragged a mid-grey rail under WCAG 1.4.11's 3:1 floor, and auditing the colour token
+without the opacity would have missed it. The painted gate numbers on the tarmac sat at
+**1.93:1** against 3:1, sharing a deliberately faint colour with the road's lane markings.
+The rail is now 3.36:1 and the gate labels have their own colour at 3.24:1; the lane lines
+stayed faint and are recorded as decorative, because measurement showed all six floor
+surfaces sit within 1.02:1–1.59:1 of each other — the game never identifies a zone by
+colour at all, it labels every one of them in words.
 
 ---
 
@@ -155,7 +181,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1208 assertions also pass under Edge:
+All 1317 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -230,6 +256,7 @@ monetisation.
 | 6 | Balance and hardening | **done** — 170 assertions |
 | — | Hardening: four adversarial audits, and the coverage they exposed | **done** — 159 assertions |
 | — | The renderer draws what it claims: differential pixel checks | **done** — 38 assertions |
+| — | Colour is never the only channel, computed rather than believed | **done** — 109 assertions |
 
 ### Phase 1 acceptance (GDD §29)
 

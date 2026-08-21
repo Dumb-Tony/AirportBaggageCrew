@@ -13,7 +13,12 @@
   --lime:#a8d93a; --violet:#8a7ff0; --coral:#ff5a5a;
   /* operational status colours — GDD §16.3. Always paired with text, never alone. */
   --st-scheduled:#5b8dd6; --st-loading:#5ec96a; --st-final:#f2c14e;
-  --st-closing:#ff5a5a;   --st-departed:#6b6880;
+  /* --st-departed was #6b6880, which the departed row's own opacity:.55 took to 1.87:1
+     against --panel — under WCAG 1.4.11's 3:1 floor for a non-text indicator, and not
+     something anybody was going to notice by looking. #b0adc4 measures 3.36:1 through
+     the same opacity, and the row still reads as finished because everything else about
+     it is dimmed too. tools\m9-tests.js asserts it. */
+  --st-closing:#ff5a5a;   --st-departed:#b0adc4;
 
   --ts:1;
   --font-ui:Quicksand,'Segoe UI',system-ui,-apple-system,sans-serif;

@@ -27,9 +27,9 @@ $root   = Split-Path $PSScriptRoot -Parent
 #>
 $baseline = @{
   m0 = 122; m1 = 143; m2 = 146; m3 = 109; m4 = 131; m5 = 190; m6 = 170; m7 = 159
-  m8 = 38
+  m8 = 38; m9 = 109
 }
-$suites = @("m0","m1","m2","m3","m4","m5","m6","m7","m8")
+$suites = @("m0","m1","m2","m3","m4","m5","m6","m7","m8","m9")
 if ($Only) { $suites = @($Only) }
 
 $failed = @()
