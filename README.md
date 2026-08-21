@@ -182,6 +182,13 @@ through the real input path at three skill levels:
 tools\smoketest.ps1 -Tests tools\_balance.js
 ```
 
+And the route diagnostic, which samples the tractor every simulation step and bins it by
+position — the one that found the balance numbers are pessimistic:
+
+```bash
+tools\smoketest.ps1 -Tests tools\_route.js
+```
+
 ---
 
 ## Phase 1 scope
@@ -288,7 +295,23 @@ through the real input path, three seeds each:
 | Bags stranded out of reach | 0 |
 | Queue depth | peaks at 6 bags waiting, mean 1.3 |
 | Where missed bags end up | 90% still sitting in a cart, 10% loose on the floor |
-| Fuzzing | 17 shifts, 169 min simulated, 0 errors, 0 invariant violations |
+| Fuzzing | 21 shifts, 221 min simulated, 0 errors, 0 invariant violations |
+| ⚠ Tractor top speed, throttle held | **7.00 m/s** — what the vehicle does |
+| ⚠ …what the bot manages over 52 m of empty ramp | **4.16 m/s**, reversing 69% of the way |
+
+That last pair is the most useful thing on this page, and it is a warning rather than a
+result. `tools\_route.js` samples the tractor every simulation step and bins it by
+position; it found that the crew bot drives the open ramp backwards almost as far as it
+drives it forwards, with a mean *signed* speed of 0.03 m/s. So **every per-trip cost in
+the balance report is roughly double the real one**, and the conclusion drawn from those
+costs — that the haul is too long and the gates should move closer — is not supported by
+anything. The map is fine. The instrument cannot drive.
+
+The four-line fix works and takes the open run to 6.96 m/s at full throttle. It also
+drops delivery from 79% to 54%, because the hitch, drop and unload phases were tuned
+around the broken driving and encode its speeds. That is written up in full at the top of
+`tools\_route.js` — every fix tried and exactly how each one failed — and reverted, on
+the grounds that a regression shipped to chase an improvement is still a regression.
 
 Milestone 5 — onboarding and juice:
 

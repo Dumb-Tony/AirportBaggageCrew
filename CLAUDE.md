@@ -98,7 +98,27 @@ The balance telemetry says where to look next, and it is not the schedule: **90%
 missed bags are still sitting in a cart** and the belt queue never exceeds six. The crew
 keeps up with sorting; the constraint is trips to the gate. That is why the "veteran" bot
 profile scores WORSE than "average" — it hauls at six bags instead of eight and spends
-the difference driving. Shorten the haul before touching the timetable again.
+the difference driving.
+
+⚠ **BUT DO NOT ACT ON THAT BY SHORTENING THE HAUL. `tools\_route.js` measured it and the
+map is not the problem — the instrument is.** The tractor reaches **7.00 m/s** in 1.5 s
+with the throttle simply held down, towing or not. Across fifty-two metres of completely
+empty ramp `CrewBot` averages **4.16 m/s**, holding the throttle 31% of the time and
+reverse or brake 69%, with a mean SIGNED speed of **0.03 m/s** — it travels backwards
+almost as far as it travels forwards, at the 3 m/s reverse cap, while believing it is
+driving to the gate. `_driveTo`'s reverse branch steers to aim the tractor's REAR at the
+waypoint, so a target directly behind produces zero steering and a dead-straight reverse
+for however far away it is.
+
+So **every per-trip cost in the balance report is roughly double the real one**, and the
+"shorten the haul" conclusion was drawn from it. Moving the gates closer would be
+optimising a number the game does not have. **Fix the bot first, then re-measure, then
+decide.** The four-line driving fix works (open run 6.96 m/s, throttle 100%, reverse 0%)
+and on its own takes delivery from 79% to **54%**, because the hitch, drop and unload
+phases were all tuned around the broken driving and encode its speeds — five rounds of
+follow-on fixes each moved the failure somewhere else. It is all written up at the top of
+`tools\_route.js`, including which fixes were tried and exactly how each one failed.
+Budget for re-tuning three phases, not for a four-line patch.
 
 ## The rules that must not bend (GDD §31.1)
 
@@ -457,8 +477,15 @@ the difference driving. Shorten the haul before touching the timetable again.
   during balance passes", so this is inside the licence — but it is a real departure
   from a stated range and §31.1.1 says to report it rather than let it pass unremarked.
   The route is what makes 50 impossible, not the count: measured, 90% of missed bags are
-  still sitting in a cart and the belt queue never exceeds six. Shorten the haul and the
-  count could go back up.
+  still sitting in a cart and the belt queue never exceeds six.
+  ⚠ **That "the route makes 50 impossible" is now in doubt, and it should not be treated
+  as settled.** The route was measured with a bot that reverses roughly half of every
+  haul (see the Phase 1 section above and `tools\_route.js`), so the trip cost it reports
+  is about twice the real one — and the crew is ALREADY idle 284 s of a 692 s shift,
+  waiting on a belt that never queues more than six. Both of those point the same way:
+  there is room for more bags, and the reason 50 failed may simply be that nobody had a
+  crew that could drive. **Fix the bot, re-measure, and re-open the bag count before
+  accepting this deviation as permanent.**
 
 - **§21.1 "runs by opening `index.html`" is impossible with ES modules** (CORS blocks
   module loads on `file://`). Modules won because §21.2's whole architecture rests on
@@ -610,6 +637,8 @@ tools\shot.ps1 -Setup tools\_shot-vis-sortroom.js -Out docs\vis-sortroom.png
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js      # is rAF usable under the harness
 tools\smoketest.ps1 -Tests tools\_balance.js  # GDD §28.4 telemetry, from a bot that plays
+tools\smoketest.ps1 -Tests tools\_route.js    # where the haul goes, and why _balance is pessimistic
+tools\smoketest.ps1 -Tests tools\_soak.js     # fuzz every invariant after every step
 tools\shot.ps1 -Setup tools\_shot-m6.js -Out docs\m6-report.png
 tools\shot.ps1 -Setup tools\_shot-m5.js -Out docs\m5-first-minute.png
 tools\shot.ps1 -Setup tools\_shot-m5-settings.js -Out docs\m5-settings.png
