@@ -26,7 +26,7 @@ $root   = Split-Path $PSScriptRoot -Parent
   commit — that is the point at which somebody has to look at it.
 #>
 $baseline = @{
-  m0 = 122; m1 = 143; m2 = 140; m3 = 105; m4 = 113; m5 = 179; m6 = 156; m7 = 150
+  m0 = 122; m1 = 143; m2 = 140; m3 = 105; m4 = 113; m5 = 190; m6 = 170; m7 = 159
   m8 = 37
 }
 $suites = @("m0","m1","m2","m3","m4","m5","m6","m7","m8")

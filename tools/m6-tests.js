@@ -21,13 +21,13 @@ import { CONFIG } from '../src/config.js';
 import { Game, MODES } from '../src/game.js';
 import { Input } from '../src/core/input.js';
 import { Rng } from '../src/core/rng.js';
-import { createBag } from '../src/entities/bag.js';
+import { createBag, WEIGHT_CLASSES } from '../src/entities/bag.js';
 import { memoryStorage, SaveSystem } from '../src/systems/save.js';
 import { moveBag, assertContainment, countByLocation } from '../src/systems/containment.js';
 import { validateChain } from '../src/systems/hitching.js';
 import { aircraftHoldZone, holdContains } from '../src/entities/aircraft.js';
 import { FLIGHT_DEFS, gateConflicts, standWindow } from '../src/data/flights.js';
-import { WALLS, BOUNDS, ANCHORS, STANDS, rectContains } from '../src/data/airport.js';
+import { WALLS, BOUNDS, ANCHORS, STANDS, rectContains, isBlocked } from '../src/data/airport.js';
 import { stateAt, isHoldOpen } from '../src/systems/flightSchedule.js';
 import { setPlacard } from '../src/systems/interaction.js';
 import { createScore, scoreFlight } from '../src/systems/scoring.js';
@@ -72,6 +72,86 @@ function newGame(seed = 606) {
 }
 /** Run a whole shift, however long the schedule says it is. */
 const wholeShift = (g) => g.skipMs(g.state.shift.endTimeMs + 2000);
+/**
+ * THE DETERMINISM CONTRACT, DEEPER THAN `describe()`.
+ *
+ * `Game.describe()` carries counts, the player pose, the carts, the vehicles, the aircraft
+ * and the flight outcomes — and not one BAG coordinate. Bags are the largest entity
+ * population in the game, so "a restarted shift replays the fresh one exactly" (C13) and
+ * "ten seconds of frames while paused change nothing" (C6) were both blind to the biggest
+ * moving thing in the airport: a bag drifting a millimetre behind the pause card, or one
+ * loose bag landing a centimetre off on a replay, matched to the byte either way.
+ *
+ * m7 C11 found the same hole for AIRCRAFT and closed it for aircraft only, saying so in a
+ * note; the same argument applies here and this closes it for bags.
+ */
+function snapshot(g, opts = {}) {
+  const s = g.state;
+  const r = (v) => (typeof v === 'number' ? Math.round(v * 1e4) / 1e4 : v);
+  const d = g.describe();
+  // `frames` counts RENDER frames, which keep climbing while paused because the page is
+  // still painting the pause card. C6 is about the simulation, so it drops that field.
+  if (opts.noFrames) delete d.frames;
+  return JSON.stringify({
+    describe: d,
+    bags: Object.values(s.bagsById).map((b) => ({
+      id: b.id, x: r(b.x), y: r(b.y), vx: r(b.vx), vy: r(b.vy), rot: r(b.rot),
+      loc: b.location.type, of: b.location.id || null, life: b.lifecycle,
+    })),
+    aim: { x: r(s.player.aimX), y: r(s.player.aimY), charge: r(s.player.chargeMs) },
+    targets: { bag: s.player.targetBagId || null, cart: s.player.targetCartId || null,
+               hold: s.player.targetHoldId || null },
+    scan: s.scan || null,
+    guide: s.guide || null,
+  });
+}
+
+/**
+ * REACHABILITY ON FOOT, by flood fill from the crew's spawn.
+ *
+ * E6/E7 used to promise exactly this in their comment — "on the spawn side of the wall, or
+ * the far side with the door between them" — and then check `!inWall(x, y)`, which is a
+ * different claim with no path search and no door test in it. Wall the doorway off
+ * completely and all nine assertions stayed green; and m0 F11 already checks every anchor
+ * for sitting inside a wall, so they were a duplicate of a weaker test as well.
+ *
+ * A grid flood fill over the real `isBlocked` is the assertion that comment describes. The
+ * cell is 0.25 m and the probe carries the PLAYER'S OWN RADIUS, so a gap the crew cannot
+ * physically fit through does not count as reachable: measured, sealing the 6 m sort-room
+ * door — or merely narrowing it to 0.5 m — drops the reachable set from 118734 cells to
+ * 13440 and turns the tractor park and both gates red. That is the failure §29 means by
+ * "no known blocker can make a required bag permanently unreachable".
+ *
+ * STATIC GEOMETRY ONLY. Aircraft and carts are entities, they move, and a cart parked
+ * across the door is a situation the player made and can undo.
+ */
+function reachableOnFoot(cellM = 0.25, radius = CONFIG.player.radiusM) {
+  const cols = Math.ceil(BOUNDS.w / cellM), rows = Math.ceil(BOUNDS.h / cellM);
+  const cellOf = (x, y) => [Math.floor((x - BOUNDS.x) / cellM), Math.floor((y - BOUNDS.y) / cellM)];
+  const key = (cx, cy) => cy * cols + cx;
+  const midX = (cx) => BOUNDS.x + (cx + 0.5) * cellM;
+  const midY = (cy) => BOUNDS.y + (cy + 0.5) * cellM;
+
+  const seen = new Set();
+  const [sx, sy] = cellOf(ANCHORS.playerSpawn.x, ANCHORS.playerSpawn.y);
+  const stack = [[sx, sy]];
+  seen.add(key(sx, sy));
+  while (stack.length) {
+    const [cx, cy] = stack.pop();
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+      const k = key(nx, ny);
+      if (seen.has(k) || isBlocked(midX(nx), midY(ny), radius)) continue;
+      seen.add(k); stack.push([nx, ny]);
+    }
+  }
+  return {
+    cells: seen.size, of: cols * rows,
+    has: (x, y) => { const [cx, cy] = cellOf(x, y); return seen.has(key(cx, cy)); },
+  };
+}
+
 let _serial = 0;
 function makeBag(g, flightId, opts = {}) {
   const spec = { flightId, priority: !!opts.priority, weightClass: opts.weightClass || 'normal' };
@@ -118,9 +198,25 @@ lines.push('--- A. GDD §29 Functional ---');
   input._debugPress('Space');
   for (let i = 0; i < 40; i++) g.frame(FRAME_MS, input);
   input._debugRelease('Space');
+  // Where it was let go of: a carried bag is PINNED to the hands, so this is its position
+  // on the step before the release edge is consumed.
+  const from = { x: bag.x, y: bag.y };
   g.frame(FRAME_MS, input);
   eq('A7 and throw it', g.state.player.carryingBagId, null);
-  ok('A8 and it travels', Math.hypot(bag.vx, bag.vy) > 0 || bag.location.type === 'floor');
+
+  /* "and it travels" was `Math.hypot(vx, vy) > 0 || location.type === 'floor'`. A throw
+     that imparted ZERO velocity leaves the bag lying on the floor — the right-hand branch —
+     so the condition covered the failure exactly as well as the success and could not go
+     red. Assert the SPEC number instead: CONFIG.bag.throwMinSpeed is what a bare tap
+     produces, and this was a 40-frame charge, which is a full heave. */
+  const launched = Math.hypot(bag.vx, bag.vy);
+  ok('A8 and it leaves the hands at throwing speed', launched >= CONFIG.bag.throwMinSpeed,
+    `${launched.toFixed(2)} m/s against a ${CONFIG.bag.throwMinSpeed} m/s tap`);
+  for (let i = 0; i < 20 && bag.location.type === 'floor'; i++) g.frame(FRAME_MS, input);
+  const flew = Math.hypot(bag.x - from.x, bag.y - from.y);
+  ok('A8b and covers metres of floor, not millimetres', flew > 1, `${flew.toFixed(2)} m`);
+  note(`      charged throw: ${launched.toFixed(1)} m/s off the hands, ` +
+       `${flew.toFixed(1)} m in the first third of a second`);
 
   // "The conveyor emits the authored bags over time."
   const c = newGame(99); c.startShift();
@@ -152,9 +248,20 @@ lines.push('--- A. GDD §29 Functional ---');
   }
   ok('A15 at least two flights want the crew at once', overlaps >= 1, `${overlaps} overlapping pairs`);
   eq('A16 and no gate is ever double-booked', gateConflicts().length, 0);
+  /* A16 is only as good as the window it compares, and THAT is where the double-booking
+     hid. `w.to > w.from` was true the moment acceptance precedes departure, which the
+     timetable guarantees for every flight — three assertions that could not go red.
+     The claim worth making is the one the helper exists for (CLAUDE.md: "a gate is occupied
+     for longer than acceptance-to-departure"): the window has to be STRICTLY WIDER than the
+     scheduled one at both ends, and wider by the taxi-in and the pushback specifically. The
+     narrower comparison passed happily while SK307 was arriving before AB221 had left. */
   for (const f of FLIGHT_DEFS) {
-    const w = standWindow(f);
-    ok(`A17.${f.number} occupies its stand for a bounded window`, w.to > w.from);
+    const w = standWindow(f), t = f.times;
+    ok(`A17.${f.number} occupies its stand from taxi-in to the end of pushback`,
+      w.from < t.bagAcceptanceMs && w.to > t.departureMs &&
+      w.from === t.bagAcceptanceMs - CONFIG.flight.taxiInMs &&
+      w.to === t.departureMs + CONFIG.flight.pushbackMs,
+      `stand ${w.from}..${w.to} against a scheduled ${t.bagAcceptanceMs}..${t.departureMs}`);
   }
 }
 
@@ -253,8 +360,19 @@ lines.push('--- C. GDD §29 UX ---');
   // READABILITY budget"). Assert the budget, which is the thing that can silently drift.
   ok('C1 the camera is at the readability zoom', CONFIG.render.viewWidthM <= 50,
     `${CONFIG.render.viewWidthM} m across`);
-  ok('C2 a bag is a usable fraction of the view',
-    0.72 / CONFIG.render.viewWidthM > 1 / 80, 'bag/view ratio');
+  /* The REAL bag width, and in the unit the criterion is written in. `0.72` was a hardcoded
+     duplicate of `WEIGHT_CLASSES.normal.w`, so a bag resize would have gone unnoticed, and
+     `0.72 / 46 > 1/80` was three constants arguing among themselves — a ratio nobody can
+     picture. State the budget the way CLAUDE.md states it ("viewWidthM is set so a 0.72 m
+     bag is ~19 px and its tag text is legible"): pixels, at a desktop width, which is what
+     §29's "legible at desktop resolution" is about. The old 62 m zoom gives 14.9 px. */
+  const DESKTOP_PX = 1280;
+  const bagW = WEIGHT_CLASSES.normal.w;
+  const bagPx = (bagW / CONFIG.render.viewWidthM) * DESKTOP_PX;
+  ok('C2 a bag is at least 15 px across at a desktop width, so its tag can be read',
+    bagPx >= 15, `${bagPx.toFixed(1)} px`);
+  note(`      a ${bagW} m bag is ${bagPx.toFixed(1)} px across at ${DESKTOP_PX} px wide ` +
+       `and ${CONFIG.render.viewWidthM} m of view`);
 
   // "Color is not the only information channel."
   const codes = new Set(FLIGHT_DEFS.map((f) => f.destinationCode));
@@ -271,7 +389,9 @@ lines.push('--- C. GDD §29 UX ---');
   // Snapshot AFTER pausing, and without `frames`. `describe()` carries the mode, which a
   // pause obviously changes, and the RENDER frame counter, which keeps climbing while
   // paused because the page is still painting the pause card — neither is the simulation.
-  const sim = () => { const d = g.describe(); delete d.frames; return JSON.stringify(d); };
+  // Through `snapshot()` rather than `describe()`: "pause is total" is a claim about every
+  // moving thing, and loose bags are the largest population of moving things there is.
+  const sim = () => snapshot(g, { noFrames: true });
   const before = sim();
   for (let i = 0; i < 600; i++) g.frame(FRAME_MS, null);
   eq('C6 ten seconds of frames while paused change nothing in the simulation', sim(), before);
@@ -337,8 +457,9 @@ lines.push('--- C. GDD §29 UX ---');
   eq('C12 and the shift-ended flag', a.state.shift.ended, false);
   const fresh = newGame(4321); fresh.startShift();
   a.skipMs(120000); fresh.skipMs(120000);
-  eq('C13 and a restarted shift replays the fresh one exactly',
-    JSON.stringify(a.describe()), JSON.stringify(fresh.describe()));
+  // Bag coordinates included. A restart that left one loose bag a centimetre off matched to
+  // the byte through `describe()`, which carries no bag position at all.
+  eq('C13 and a restarted shift replays the fresh one exactly', snapshot(a), snapshot(fresh));
 }
 
 /* ── D. §29 QUALITY: can it be played, and does anything strand you? ─────── */
@@ -347,27 +468,49 @@ lines.push('--- D. GDD §29 Quality: a shift somebody played ---');
 
   // The closest a suite gets to §28.3's usability playtest: CrewBot drives the real
   // input path — walking, grabbing, placarding, hitching, driving, loading holds.
+  /* THREE SEEDS, and the balance claims gate on the MEDIAN of them.
+   *
+   * One seed is one shift. D3's "60%" was measured on seed 12345 alone, where the crew
+   * happens to manage 79% — so the margin it was defending was a property of that seed, and
+   * a seed that stranded the crew once would have turned a green suite red with nothing
+   * having changed. Worse, `tools/_balance.js`, which only MEASURES, ran three seeds while
+   * the suite that GATES ran one. It now runs the same three, and takes the middle result:
+   * a median survives one unlucky shift and still moves when the balance really does. */
+  const SEEDS = [12345, 777, 2468];
+  const SKILL_ORDER = ['novice', 'average', 'veteran'];
+  const runs = {};
   const results = [];
-  for (const skill of ['novice', 'average', 'veteran']) {
-    const g = newGame(12345);
-    results.push(playShift(g, new Input(window), skill));
+  for (const skill of SKILL_ORDER) {
+    runs[skill] = SEEDS.map((seed) => {
+      const r = playShift(newGame(seed), new Input(window), skill);
+      results.push({ seed, r });
+      return r;
+    });
   }
-  const [novice, average, veteran] = results;
-  for (const r of results) {
-    note(`      ${r.skill.padEnd(8)} ${r.correct}/${r.owed} delivered (${r.pct}%), ` +
-         `${r.points} points, ${r.bot.hauls} cart trips, ` +
-         `${(r.bot.walkedM).toFixed(0)} m walked, ${(r.bot.drivenM).toFixed(0)} m driven`);
+  // Three samples, so the middle one after sorting IS the median.
+  const midBy = (skill, field) => [...runs[skill]].sort((a, b) => a[field] - b[field])[1];
+  const med = (skill, field) => midBy(skill, field)[field];
+
+  for (const skill of SKILL_ORDER) {
+    SEEDS.forEach((seed, i) => {
+      const r = runs[skill][i];
+      note(`      ${r.skill.padEnd(8)} seed ${String(seed).padEnd(6)} ${r.correct}/${r.owed} ` +
+           `delivered (${r.pct}%), ${r.points} points, ${r.bot.hauls} cart trips, ` +
+           `${(r.bot.walkedM).toFixed(0)} m walked, ${(r.bot.drivenM).toFixed(0)} m driven`);
+    });
+    note(`      ${skill.padEnd(8)} MEDIAN of ${SEEDS.length}: ${med(skill, 'pct')}% ` +
+         `and ${med(skill, 'points')} points`);
   }
 
   // "No known blocker can make a required bag permanently unreachable."
-  for (const r of results) {
-    eq(`D1.${r.skill} nothing stranded the crew`, r.bot.deadEnds.length, 0,
+  for (const { seed, r } of results) {
+    eq(`D1.${r.skill}.${seed} nothing stranded the crew`, r.bot.deadEnds.length, 0,
       JSON.stringify(r.bot.deadEnds.slice(0, 3)));
     // §29 forbids a bag being PERMANENTLY unreachable. One that has ridden on down the
     // belt by the time you get there is not that — the bot sets it aside and comes back,
     // and D9/D10 prove every bag is eventually accounted for. A real blocker would be one
     // the crew reaches for over and over and never gets.
-    ok(`D2.${r.skill} out-of-reach arrivals stay incidental`,
+    ok(`D2.${r.skill}.${seed} out-of-reach arrivals stay incidental`,
       r.bot.unreachable <= Math.max(3, r.bot.bagsCarried * 0.15),
       `${r.bot.unreachable} misses against ${r.bot.bagsCarried} pickups`);
   }
@@ -375,15 +518,18 @@ lines.push('--- D. GDD §29 Quality: a shift somebody played ---');
   // The shift has to be WINNABLE — the M6 balance target. A competent crew clears most
   // of it and scores positive; an unskilled one does not. Both halves matter: a game
   // nobody can finish is broken, and one anybody can finish has no pressure.
-  ok('D3 a competent crew delivers most of the shift', average.pct >= 60, `${average.pct}%`);
-  ok('D4 and finishes in credit', average.points > 0, `${average.points}`);
-  ok('D5 a careless one does not', novice.pct < average.pct,
-    `novice ${novice.pct}% vs average ${average.pct}%`);
-  ok('D6 nobody clears it without trying', novice.points < 0, `${novice.points}`);
+  ok('D3 a competent crew delivers most of the shift', med('average', 'pct') >= 60,
+    `median ${med('average', 'pct')}% of ${runs.average.map((r) => r.pct + '%').join(', ')}`);
+  ok('D4 and finishes in credit', med('average', 'points') > 0,
+    `median ${med('average', 'points')} of ${runs.average.map((r) => r.points).join(', ')}`);
+  ok('D5 a careless one does not', med('novice', 'pct') < med('average', 'pct'),
+    `novice ${med('novice', 'pct')}% vs average ${med('average', 'pct')}%`);
+  ok('D6 nobody clears it without trying', med('novice', 'points') < 0,
+    `median ${med('novice', 'points')} of ${runs.novice.map((r) => r.points).join(', ')}`);
+  const avgMid = midBy('average', 'pct');
   ok('D7 every flight gets a share of the crew',
-    average.perFlight.every((f) => f.correct > 0),
-    JSON.stringify(average.perFlight));
-  void veteran;
+    avgMid.perFlight.every((f) => f.correct > 0),
+    JSON.stringify(avgMid.perFlight));
 
   // "No known duplication or deletion of bag identity occurs during normal play."
   const g = newGame(2024);
@@ -448,10 +594,23 @@ lines.push('--- E. GDD §29 Quality: 100 bags, and nothing wedged in the scenery
   for (let i = 0; i < STEPS; i++) g.frame(FRAME_MS, null);
   const ms = performance.now() - t0;
   const perStep = ms / STEPS;
-  ok('E2 a step with 100+ bags fits the frame budget', perStep < CONFIG.sim.stepMs / 4,
-    `${perStep.toFixed(3)} ms/step`);
   note(`      ${bagCount} bags, ${STEPS} steps: ${perStep.toFixed(3)} ms per step ` +
        `(budget ${CONFIG.sim.stepMs.toFixed(2)} ms) — ${(CONFIG.sim.stepMs / perStep).toFixed(0)}x headroom`);
+
+  /* TWO gates, because the budget one alone is nearly unfailable. A quarter of the frame
+     budget is 4.17 ms and this measures 0.079 — a 53x regression could land here in total
+     silence, and the printed headroom line is the part anybody actually reads.
+     So the budget check stays (it is §29's own criterion) and the regression gate is the
+     RECORDED baseline with room for a loaded machine: this box runs several agents at once
+     and the same measurement has been seen at 0.119 ms under that load, so 25x is generous
+     and still catches an order of magnitude. Move the baseline deliberately, in the same
+     commit as whatever made it move. */
+  const E2_BASELINE_MS = 0.079;    // CLAUDE.md M6: 124 bags and three loaded carts, per step
+  ok('E2 a step with 100+ bags fits the frame budget', perStep < CONFIG.sim.stepMs / 4,
+    `${perStep.toFixed(3)} ms/step`);
+  ok('E2b and is still within 25x of the recorded per-step baseline',
+    perStep < E2_BASELINE_MS * 25,
+    `${perStep.toFixed(3)} ms against a ${E2_BASELINE_MS} ms baseline`);
   eq('E3 and containment survived the crowd', assertContainment(g.state).length, 0);
 
   // "Fix unreachable/stuck cases." Nothing may come to rest inside a wall.
@@ -465,16 +624,28 @@ lines.push('--- E. GDD §29 Quality: 100 bags, and nothing wedged in the scenery
     (b.x < BOUNDS.x || b.x > BOUNDS.x + BOUNDS.w || b.y < BOUNDS.y || b.y > BOUNDS.y + BOUNDS.h));
   eq('E5 nor outside the airport', outside.length, 0);
 
-  // Every place a bag must be able to reach has to be reachable on foot from spawn.
-  // The sort-room wall is the only obstacle and the door is its only gap, so "reachable"
-  // is: on the spawn side of the wall, or the far side with the door between them.
-  const wp = [ANCHORS.conveyorEnd, ANCHORS.cartBay1, ANCHORS.cartBay2, ANCHORS.cartPark,
-              ANCHORS.tractorPark, ANCHORS.gate1Hold, ANCHORS.gate2Hold];
-  for (const p of wp) {
-    ok(`E6 (${p.x},${p.y}) is not inside a wall`, !inWall(p.x, p.y));
+  /* Every place a bag must be able to reach has to be REACHABLE ON FOOT from where the crew
+     starts. That is a path question and it used to be answered with `!inWall(x, y)` — no
+     path search, no door test, and a duplicate of m0 F11, which already checks every anchor
+     for sitting inside a wall. Sealing the doorway left all nine green.
+     `reachableOnFoot` walks the real `isBlocked` from `ANCHORS.playerSpawn` with the
+     player's own radius, so these now fail if the only route is ever closed off — and they
+     subsume the old check, since a point inside a wall is never reached. */
+  const walk = reachableOnFoot();
+  note(`      ${walk.cells} of ${walk.of} grid cells are walkable from the crew's spawn ` +
+       `(0.25 m cells, ${CONFIG.player.radiusM} m body). Sealing the sort-room door drops ` +
+       `that to 13440 and strands both gates.`);
+  const wp = [
+    ['conveyorEnd', ANCHORS.conveyorEnd], ['cartBay1', ANCHORS.cartBay1],
+    ['cartBay2', ANCHORS.cartBay2], ['cartPark', ANCHORS.cartPark],
+    ['tractorPark', ANCHORS.tractorPark], ['gate1Hold', ANCHORS.gate1Hold],
+    ['gate2Hold', ANCHORS.gate2Hold],
+  ];
+  for (const [name, p] of wp) {
+    ok(`E6 ${name} (${p.x},${p.y}) is walkable from the crew's spawn`, walk.has(p.x, p.y));
   }
   for (const s of STANDS) {
-    ok(`E7 ${s.id} hold door is clear of scenery`, !inWall(s.hold.x, s.hold.y));
+    ok(`E7 ${s.id} hold door is walkable from the crew's spawn`, walk.has(s.hold.x, s.hold.y));
   }
 
   // A ten-minute shift with no uncaught errors — §29 asks for exactly this.
@@ -598,9 +769,15 @@ lines.push('--- G. the live build ---');
 
   // Cross-browser surface: everything the game needs must be feature-detected here rather
   // than assumed, because a missing one is a blank screen on somebody else's machine.
+  // `modules: true, // this file is one` was a LITERAL, and the loop below asserted it —
+  // the only assertion in the project whose condition was a constant. Ask the browser the
+  // question instead: HTMLScriptElement.supports('module') is the real feature detection,
+  // it can answer false, and it is what a cross-browser surface check is supposed to be.
   const need = {
     canvas2d: !!document.createElement('canvas').getContext('2d'),
-    modules: true,                                  // this file is one
+    modules: typeof HTMLScriptElement !== 'undefined' &&
+             typeof HTMLScriptElement.supports === 'function' &&
+             HTMLScriptElement.supports('module') === true,
     rAF: typeof requestAnimationFrame === 'function',
     perfNow: typeof performance !== 'undefined' && typeof performance.now === 'function',
     roundRect: typeof CanvasRenderingContext2D !== 'undefined' &&
@@ -690,9 +867,19 @@ lines.push('--- I. GDD §24.3 recover, §23.1 onboarding flag, §20.2 priority p
   const input = new Input(window);
   const p = g.state.player;
 
-  p.x = 33.7; p.y = 30;                     // inside room_e2, x 33.4–34.0
+  /* The wedge point is DERIVED from the wall, not typed in. `33.7, 30` with a comment
+     saying "inside room_e2, x 33.4-34.0" was a copy of two numbers that live in
+     data/airport.js, and a 10 cm move of the sort-room wall would have left this poking at
+     open floor and quietly testing nothing. */
+  const room = WALLS.find((w) => w.id === 'room_e2');
+  const wedgePoint = { x: room.x + room.w / 2, y: room.y + room.h / 2 };
+  p.x = wedgePoint.x; p.y = wedgePoint.y;
   g.frame(FRAME_MS, input);
-  ok('I1 a player can end up inside a wall', WALLS.some((w) => rectContains(w, p.x, p.y)));
+  // Not "a player can end up inside a wall" — the test had just put them there, so that
+  // was asserting its own setup. What a step must NOT do is quietly teleport them out:
+  // if it did, I2's "no amount of walking moves them" would be measuring nothing.
+  ok('I1 a simulation step does not eject a player already inside a wall',
+    WALLS.some((w) => rectContains(w, p.x, p.y)), `${p.x.toFixed(2)},${p.y.toFixed(2)}`);
   const wedged = { x: p.x, y: p.y };
   input._debugPress('KeyD');
   for (let i = 0; i < 60; i++) g.frame(FRAME_MS, input);
@@ -727,7 +914,7 @@ lines.push('--- I. GDD §24.3 recover, §23.1 onboarding flag, §20.2 priority p
   g.frame(FRAME_MS, input);
   input._debugPress('KeyF'); g.frame(FRAME_MS, input); input._debugRelease('KeyF');
   eq('I6 aboard the tractor', g.state.player.drivingId, v.id);
-  v.x = 33.7; v.y = 30;
+  v.x = wedgePoint.x; v.y = wedgePoint.y;
   g.frame(FRAME_MS, input);
   input._debugPress('KeyX'); g.frame(FRAME_MS, input); input._debugRelease('KeyX');
   ok('I7 X frees a wedged tractor too', !WALLS.some((w) => rectContains(w, v.x, v.y)),
@@ -739,7 +926,13 @@ lines.push('--- I. GDD §24.3 recover, §23.1 onboarding flag, §20.2 priority p
   const store = memoryStorage();
   const a = new Game({ seed: 5, seedLabel: 't', storage: store });
   a.startShift();
-  ok('I9 a first shift shows the rail', !!a.guideView || a.guide.enabled);
+  // `!!a.guideView || a.guide.enabled` never needed its left branch: `guide.enabled`
+  // defaults true and I14 asserts that separately, so the whole condition was one default
+  // wearing a disjunction. The claim is that the rail is ON SCREEN, which means a live view
+  // with text in it — and `guideView` is written inside step(), so run one.
+  a.step(FRAME_MS, a.state.simTimeMs, null);
+  ok('I9 a first shift shows the rail', !!a.guideView && !!a.guideView.text,
+    JSON.stringify(a.guideView));
   a.guide.index = 999;                       // as if the player worked through it
   a.step(FRAME_MS, a.state.simTimeMs, null);
   ok('I10 finishing it marks the guide complete', a.guide.complete);

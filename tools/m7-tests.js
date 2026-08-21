@@ -18,13 +18,16 @@
  *      none of them ASSERTS that a pointer is never required.
  *   E  GDD §7.1 — the scanner card's body. Only the bag number was ever checked.
  *
- * TWO CHANGES THIS FILE CANNOT MAKE FOR ITSELF, for whoever owns the rest of the repo:
- *   1. tools\test.ps1 does not know about m7 yet. Until it is registered there the suite
- *      runs with:  tools\smoketest.ps1 -Tests tools\m7-tests.js
- *   2. Section B20 pins the "." skip at 1x only. It is fed through clock.skipMs, which
- *      scales by clock.timeScale — so at 4x the overlay's "skip 10s" advances FORTY
- *      seconds of simulation. That may well be intended (a debug key at 4x arguably
- *      should), but nothing says so, and no assertion anywhere had noticed either way.
+ * FOR WHOEVER OWNS tools\test.ps1: it runs this suite and holds an assertion COUNT baseline
+ * for it, so adding or removing an assertion here means moving that number in the same
+ * commit. (An earlier version of this header said test.ps1 did not know about m7 yet. It
+ * does, and it has for a while — the note went stale and nothing notices a stale comment.)
+ *
+ * ONE CHANGE THIS FILE CANNOT MAKE FOR ITSELF, for whoever owns src/:
+ *   Section B20 pins the "." skip at 1x only. It is fed through clock.skipMs, which
+ *   scales by clock.timeScale — so at 4x the overlay's "skip 10s" advances FORTY seconds
+ *   of simulation. That may well be intended (a debug key at 4x arguably should), but
+ *   nothing says so, and no assertion anywhere had noticed either way.
  *
  * Harness copied verbatim from tools\m6-tests.js: the same ok/eq/note helpers, the same
  * progressive emit() after every section (a section that throws still reports how far it
@@ -35,10 +38,13 @@
 
 import { CONFIG } from '../src/config.js';
 import { Game, MODES } from '../src/game.js';
+import { GameClock } from '../src/core/clock.js';
 import { Input } from '../src/core/input.js';
 import { Rng } from '../src/core/rng.js';
 import { EventBus, EVENTS } from '../src/core/eventBus.js';
 import { createBag } from '../src/entities/bag.js';
+import { WALLS, rectContains } from '../src/data/airport.js';
+import { FLIGHT_DEFS } from '../src/data/flights.js';
 import { memoryStorage } from '../src/systems/save.js';
 import { moveBag, assertContainment } from '../src/systems/containment.js';
 import { validateChain, hitch } from '../src/systems/hitching.js';
@@ -82,6 +88,47 @@ const yieldToLoop = () => new Promise((res) => {
 /** Storage is ALWAYS injected: a suite must never write a real high score into the browser. */
 function newGame(seed = 707) {
   return new Game({ seed, seedLabel: 'test', storage: memoryStorage() });
+}
+
+/**
+ * A point provably INSIDE a wall, derived from the wall rather than typed in.
+ *
+ * Two places in this file used to hardcode `33.7, 30` with a comment reading "inside
+ * room_e2 (x 33.4-34.0)" — a copy of two numbers that live in data/airport.js. Move the
+ * sort-room wall ten centimetres and both would have been poking at open floor, and the
+ * two assertions that depend on the crew being genuinely stuck would have been testing
+ * nothing while staying green.
+ */
+function insideWall(id = 'room_e2') {
+  const w = WALLS.find((r) => r.id === id);
+  return { x: w.x + w.w / 2, y: w.y + w.h / 2 };
+}
+const inAnyWall = (x, y) => WALLS.some((w) => rectContains(w, x, y));
+
+/**
+ * THE DETERMINISM CONTRACT, DEEPER THAN `describe()`.
+ *
+ * C11 below closed this hole for AIRCRAFT and said so in a note; `describe()` has since
+ * grown an aircraft roster. BAGS are still outside it — no coordinate, no velocity — and
+ * they are the largest entity population in the game. So a "reads and never writes"
+ * assertion measured through `describe()` alone cannot see a debug panel or an overlay
+ * nudging a bag, which is precisely the kind of write B25 exists to forbid.
+ */
+function snapshot(g) {
+  const s = g.state;
+  const r = (v) => (typeof v === 'number' ? Math.round(v * 1e4) / 1e4 : v);
+  return JSON.stringify({
+    describe: g.describe(),
+    bags: Object.values(s.bagsById).map((b) => ({
+      id: b.id, x: r(b.x), y: r(b.y), vx: r(b.vx), vy: r(b.vy), rot: r(b.rot),
+      loc: b.location.type, of: b.location.id || null, life: b.lifecycle,
+    })),
+    aim: { x: r(s.player.aimX), y: r(s.player.aimY), charge: r(s.player.chargeMs) },
+    targets: { bag: s.player.targetBagId || null, cart: s.player.targetCartId || null,
+               hold: s.player.targetHoldId || null },
+    scan: s.scan || null,
+    guide: s.guide || null,
+  });
 }
 
 let _serial = 0;
@@ -301,12 +348,16 @@ lines.push('--- A. GDD 21.5 domain events actually reach a subscriber ---');
        is walkable, so if this did not fire the game would simply be frozen. */
     exitVehicle(g2.state, g2.bus, g2.state.simTimeMs);
     const stuck = g2.state.player;
-    stuck.x = 33.7; stuck.y = 30;                    // inside room_e2 (x 33.4-34.0)
+    const wedgePoint = insideWall('room_e2');        // derived, not typed in
+    stuck.x = wedgePoint.x; stuck.y = wedgePoint.y;
     g2.frame(FRAME_MS, i2);
     const wedged = { x: stuck.x, y: stuck.y };
+    ok('A2a the crew really is wedged before X is pressed', inAnyWall(wedged.x, wedged.y),
+      `${wedged.x.toFixed(2)},${wedged.y.toFixed(2)}`);
     i2._debugPress('KeyX'); g2.frame(FRAME_MS, i2); i2._debugRelease('KeyX');
     ok('A2b X frees a player wedged in a wall',
-      Math.hypot(stuck.x - wedged.x, stuck.y - wedged.y) > 0.1,
+      Math.hypot(stuck.x - wedged.x, stuck.y - wedged.y) > 0.1 &&
+      !inAnyWall(stuck.x, stuck.y),
       `${wedged.x},${wedged.y} -> ${stuck.x.toFixed(2)},${stuck.y.toFixed(2)}`);
   }
 
@@ -539,10 +590,13 @@ lines.push('--- B. GDD 21.8 the developer overlay ---');
 
   // update() is a READER. GDD 31.3: no rule may live in a debug panel, so running it must
   // not change one measurable thing about the simulation.
-  const before = JSON.stringify(g.describe());
+  // Through `snapshot()`, not `describe()`. The overlay prints bag counts and walks the
+  // containment index, and `describe()` carries no bag coordinate — so an overlay that
+  // nudged a bag while measuring it was outside this assertion entirely.
+  const before = snapshot(g);
   dbg.update(FRAME_MS);
   dbg.update(FRAME_MS);
-  eq('B25 update() reads the simulation and never writes to it', JSON.stringify(g.describe()), before);
+  eq('B25 update() reads the simulation and never writes to it', snapshot(g), before);
 
   // What it actually shows is GDD 21.8's list, and the two live invariants the CLAUDE.md
   // notes say are checked in the overlay rather than only at test time.
@@ -616,7 +670,14 @@ lines.push('--- B. GDD 21.8 the developer overlay ---');
       .filter((s) => playerFacing.includes(s));
     eq('B44 and no debug field has leaked into a player-facing panel', leaked.length, 0,
       leaked.join(', '));
-    ok('B45 the shipped overlay is shut on a fresh page', !liveDebug.classList.contains('on'));
+    /* `liveWasOn` was read at the TOP of this section, before a single F3 was dispatched.
+       Asserting `!liveDebug.classList.contains('on')` down here asked about the page after
+       this suite had opened and closed the shipped overlay four times and then put it back
+       — so it was testing the suite's own restore, not the build. The fresh-page question
+       can only be answered by the value taken on the fresh page. */
+    eq('B45 the shipped overlay was shut before this suite ever pressed F3', liveWasOn, false);
+    eq('B45b and this suite handed it back the way it found it',
+      liveDebug.classList.contains('on'), liveWasOn);
   }
 }
 
@@ -675,10 +736,12 @@ lines.push('--- C. restart completeness includes aircraftById ---');
       f.loadedBagIds.length === 0 && f.evaluated === false &&
       f.outcome.correct === 0 && f.outcome.misrouted === 0 && f.outcome.missed === 0));
 
-  /* The determinism contract is `describe()`, and describe() does NOT carry the aircraft —
-     so "a restart replays the fresh shift exactly" (m6 C13) is silent about where the
-     aeroplanes are. Compare the poses directly, which is the part that assertion cannot
-     see. */
+  /* The determinism contract is `describe()`, and when this section was written describe()
+     did NOT carry the aircraft — so "a restart replays the fresh shift exactly" (m6 C13)
+     was silent about where the aeroplanes were. src/game.js has since added an aircraft
+     roster to describe() for exactly that reason, so this is no longer the only thing
+     looking; it is still the FINER look, comparing a restarted shift against a fresh one
+     part-way through the loading window rather than at a round number of seconds. */
   const fresh = newGame(4321);
   fresh.startShift();
   const at = ab.times.loadingMs + 20000;
@@ -689,8 +752,8 @@ lines.push('--- C. restart completeness includes aircraftById ---');
   })));
   eq('C11 and a restarted shift flies its aircraft identically to a fresh one',
     pose(g.state), pose(fresh.state));
-  note('      describe() carries flights but not aircraft, so C11 is the only thing');
-  note('      comparing aircraft poses across a restart.');
+  note('      aircraft poses across a restart, at four decimals and mid-loading. m6 C13');
+  note('      covers the same seed at 120 s through a snapshot that carries bags as well.');
 }
 
 /* ══ D. GDD §16.6 — keyboard-only operation ══════════════════════════════ */
@@ -738,10 +801,24 @@ lines.push('--- D. GDD 16.6 the whole loop, keyboard only ---');
   input._debugPress('Space');
   for (let i = 0; i < 45; i++) g.frame(FRAME_MS, input);
   input._debugRelease('Space');
+  // Where it was let go of: a carried bag is PINNED to the hands, so this is its position
+  // on the step before the release edge is consumed.
+  const threwFrom = { x: b1.x, y: b1.y };
   g.frame(FRAME_MS, input);
   eq('D8 Space charges and releases a throw', p.carryingBagId, null);
-  ok('D9 and the bag left the hands under its own steam',
-    Math.hypot(b1.vx, b1.vy) > 0 || b1.location.type === 'floor');
+
+  /* "under its own steam" was `Math.hypot(vx, vy) > 0 || location.type === 'floor'`. A
+     throw that imparted ZERO velocity leaves the bag on the floor, which is the right-hand
+     branch — so the condition was satisfied by the failure as readily as by the success and
+     could not go red. The A-section's own BAG_THROWN payload check already names the spec
+     number; use it here too, and then watch the bag actually cross some floor. */
+  const launched = Math.hypot(b1.vx, b1.vy);
+  ok('D9 and the bag left the hands at throwing speed',
+    launched >= CONFIG.bag.throwMinSpeed,
+    `${launched.toFixed(2)} m/s against a ${CONFIG.bag.throwMinSpeed} m/s tap`);
+  for (let i = 0; i < 20 && b1.location.type === 'floor'; i++) g.frame(FRAME_MS, input);
+  const flew = Math.hypot(b1.x - threwFrom.x, b1.y - threwFrom.y);
+  ok('D9b and covered metres of floor doing it', flew > 1, `${flew.toFixed(2)} m`);
 
   /* Placard, load, unload — the sorting verb, at a cart the player walked to. */
   const cart = g.state.cartsById.cart_1;
@@ -810,8 +887,61 @@ lines.push('--- D. GDD 16.6 the whole loop, keyboard only ---');
   ok('D24 and E again puts it in the hold', flight.loadedBagIds.includes(carried),
     g.state.bagsById[carried].location.type);
 
-  eq('D25 nothing in the loop ever needed a pointer', input.pointer.seen, false);
-  eq('D26 and none of it produced a world aim from one', input.pointerWorld, null);
+  /* PARITY, which is what §16.6 actually claims.
+   *
+   * D25/D26 used to re-read `input.pointer.seen` and `input.pointerWorld` here and assert
+   * they were still false and null. D1/D2 had already asserted exactly those two values on
+   * exactly that object, and nothing in this section COULD have changed them: the Input was
+   * never attached to a window and every key went in through `_debugPress`. They asserted
+   * that the suite had not written to its own variable.
+   *
+   * The claim worth making is that the verbs do not CONSULT the pointer. So run one
+   * scripted loop twice — once on an Input that has never seen a pointer, once on one
+   * holding a pointer aimed exactly where the keys are already aiming — and demand the same
+   * outcome. Same aim on both sides, so a divergence can only be a verb reading
+   * `pointerWorld` to decide what it acts on, which is the day the game stops being
+   * playable without a mouse. */
+  let keyRunSawPointer = null;
+  const scriptedLoop = (withPointer) => {
+    const h = newGame(1616);
+    h.startShift();
+    const inp = new Input(window);
+    const hp = h.state.player;
+    for (let i = 0; i < 40; i++) { inp._debugPress('KeyD'); h.frame(FRAME_MS, inp); }
+    inp._debugRelease('KeyD'); h.frame(FRAME_MS, inp);
+    if (withPointer) {
+      inp.pointer.seen = true;
+      inp.pointerWorld = { x: hp.x + 12, y: hp.y };   // due east: the way D3/D4 just aimed
+    }
+    const target = makeBag(h, 'flight_AB221', { x: hp.x + 0.7, y: hp.y });
+    h.frame(FRAME_MS, inp);
+    tap(h, inp, 'KeyE');                              // grab
+    const grabbed = hp.carryingBagId === target.id;
+    tap(h, inp, 'KeyQ');                              // scan
+    const scanned = !!h.state.scan && h.state.scan.bagId === target.id;
+    tap(h, inp, 'KeyE');                              // and set it down again
+    // `Input`'s constructor does not bind anything — `attach()` does, and this one is never
+    // attached — so the key-only run cannot acquire a pointer by accident. Recorded rather
+    // than assumed: a constructor that started `seen` true, or a `_debugPress` that set it,
+    // would make the two runs below indistinguishable for the wrong reason.
+    if (!withPointer) keyRunSawPointer = inp.pointer.seen;
+    // Ids and tag numbers differ between the two runs by construction, so the signature is
+    // made of ANSWERS — did the verb act on the bag it was pointed at — never of names.
+    return JSON.stringify({
+      grabbed, scanned,
+      verdict: h.state.scan ? h.state.scan.verdict : null,
+      aim: [+hp.aimX.toFixed(3), +hp.aimY.toFixed(3)],
+      handsEmpty: hp.carryingBagId === null,
+      where: h.state.bagsById[target.id].location.type,
+    });
+  };
+  const keysOnly = scriptedLoop(false);
+  const keysAndMouse = scriptedLoop(true);
+  ok('D25 the key-only run grabbed, scanned and set down the bag it aimed at, no pointer ever seen',
+    /"grabbed":true/.test(keysOnly) && /"scanned":true/.test(keysOnly) &&
+    keyRunSawPointer === false, `${keysOnly} sawPointer=${keyRunSawPointer}`);
+  eq('D26 and a pointer aimed the same way changes nothing about any of it',
+    keysAndMouse, keysOnly);
   eq('D27 and the keyboard-only shift kept containment', assertContainment(g.state).length, 0);
 }
 
@@ -828,9 +958,17 @@ lines.push('--- D. GDD 16.6 the whole loop, keyboard only ---');
  * destination, the gate, the PRIORITY and HEAVY markers, and the verdict — could be
  * deleted with no suite noticing.
  *
- * DELIBERATELY NOT ASSERTED: the "DEPARTS IN" countdown. How that line gets its time is
- * being changed concurrently in src/, so pinning it here would be pinning a moving part.
- * It is the one line of the mock-up this section leaves alone.
+ * The "DEPARTS IN" countdown used to be left alone here, on the grounds that how it got its
+ * time was being changed in src/ at the time. That change has landed, and the line it
+ * landed on is the one the difficulty assist corrupted:
+ *
+ *     const departsMs = live ? live.times.departureMs : bag.expectedDepartureMs;
+ *
+ * Read `FLIGHT_DEFS` there instead of `state.flightsById` and the card counts down to a
+ * departure the player did not choose — five minutes early on Unhurried, then sitting on
+ * 0:00 while the hold is still open and the board on the same screen says otherwise. So
+ * E23-E26 assert the VALUE, at the authored shift and at an assisted one, against the
+ * authored number scaled by the assist rather than against whatever the card read from.
  *
  * The card is built against a detached root, so this needs no animation frame and cannot
  * disturb the shipped HUD's own card.
@@ -894,12 +1032,60 @@ lines.push('--- E. GDD 7.1 the scanner card body ---');
   card.update(g.state);
   ok('E21 the card hides when the scan expires', !card.el.classList.contains('on'));
 
-  /* The mock-up's fourth line exists — it is just not this suite's to pin down. */
+  /* The mock-up's fourth line. */
   g.state.scan = { bagId: plain.id, atMs: g.state.simTimeMs + 3, verdict: 'neutral', where: 'floor' };
   card.update(g.state);
-  ok('E22 the DEPARTS IN line is present (its VALUE is deliberately not asserted here)',
-    read().includes('DEPARTS IN'), read());
+  ok('E22 the DEPARTS IN line is present', read().includes('DEPARTS IN'), read());
   card.destroy();
+
+  /* ── and it counts down to the right departure, at any assist ───────────────
+   *
+   * The authored departure is `FLIGHT_DEFS`; the one being PLAYED is that scaled by the
+   * assist, at one authoring site (`createFlights` -> `scaleTimes`). Asserting the card
+   * against `state.flightsById` would be asserting it against the thing it read, so the
+   * expected string is built from the authored constant and the assist the player picked —
+   * which is where the number comes from in the first place.
+   *
+   * Two assists, because the bug is invisible at 1.0: `FLIGHT_DEFS` and `state.flightsById`
+   * agree exactly when the multiplier is 1, so a card reading the wrong one is green all
+   * day on the authored shift and wrong on every assisted one. */
+  const ab = FLIGHT_DEFS.find((f) => f.id === 'flight_AB221');
+  for (const assist of [1, 1.6]) {
+    const h = newGame(717);
+    h.applySettings({ assist });
+    h.startShift();
+    h.skipMs(40000);                     // somewhere in the middle, not on a round boundary
+
+    const root2 = document.createElement('div');
+    const c2 = new ScannerCard(root2);
+    const bag = makeBag(h, 'flight_AB221', { x: 40, y: 30 });
+    h.state.scan = { bagId: bag.id, atMs: h.state.simTimeMs, verdict: 'neutral', where: 'floor' };
+    c2.update(h.state);
+    const shown = c2.el.textContent.replace(/\s+/g, ' ').trim();
+
+    const wantMs = Math.round(ab.times.departureMs * assist) - h.state.simTimeMs;
+    const want = GameClock.formatMs(wantMs);
+    ok(`E23 (assist ${assist}) DEPARTS IN counts to the departure the player is playing`,
+      shown.includes(`DEPARTS IN ${want}`),
+      `wanted "${want}", card says "${(shown.match(/DEPARTS IN [^ ]*/) || [''])[0]}"`);
+    // And it is a real countdown, not the placeholder the rebuild seeds the node with.
+    ok(`E24 (assist ${assist}) and it is a live time, not the "--:--" placeholder`,
+      !shown.includes('--:--') && wantMs > 0, shown.slice(0, 120));
+
+    // The pair that makes E23 mean something: at 1.6 the answer must NOT be the authored
+    // one. Without this, a card that ignored the assist entirely would still satisfy E23 at
+    // assist 1 and fail only by coincidence.
+    const unscaled = GameClock.formatMs(ab.times.departureMs - h.state.simTimeMs);
+    if (assist !== 1) {
+      ok('E25 an assisted shift does not count down to the authored departure',
+        want !== unscaled && !shown.includes(`DEPARTS IN ${unscaled}`),
+        `authored would read "${unscaled}", assisted reads "${want}"`);
+    } else {
+      ok('E25 the authored shift counts down to the authored departure', want === unscaled,
+        `${want} vs ${unscaled}`);
+    }
+    c2.destroy(); root2.remove();
+  }
 }
 
 /* ── run ─────────────────────────────────────────────────────────────────── */
