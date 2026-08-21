@@ -15,15 +15,24 @@ serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
 tests themselves. 1208 assertions green across nine suites.**
-Three flights, thirty-four bags, eleven and a half minutes. Bags arrive on a conveyor, get
+Three flights, forty-two bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
 with a report telling you exactly what you managed, and a button to try again.
 
-A competent crew now clears about three quarters of the shift and finishes in credit;
-a careless one goes backwards. That is the Milestone 6 balance pass, and every number
-behind it was measured by a bot playing through the real keyboard path rather than
-guessed.
+A competent crew now clears four fifths of the shift and finishes in credit; a careless
+one goes backwards. Every number behind that was measured by a bot playing through the
+real keyboard path rather than guessed.
+
+The shift **used to be thirty-four bags**, which broke the GDD's own stated range of
+40–60. The balance pass that cut it had also stretched every flight window by 45% and
+never put the bags back, and the telemetry said so plainly for months without anyone
+reading it that way: the crew stood **idle for 284 seconds of a 692-second shift**, and
+the belt never queued more than six. Forty-two is measured better on both counts that
+matter — a first-timer goes from 34% to 54%, a competent crew from +1783 points to +2183
+— and it is the last count that still leaves zero dead ends. Forty-eight scores an
+average crew higher and is out anyway, because it makes bags unreachable and that is a
+GDD §29 rule rather than a preference.
 
 ![The shift report at the end of a played shift](docs/m6-report.png)
 
@@ -237,7 +246,7 @@ no program can stand in for a person:
 - pressure comes from overlapping simple work, not confusing controls
 
 The closest a test gets is section D, which plays whole shifts with a bot driving the
-real input path. It shows a competent crew clearing 79% and finishing in credit, and a
+real input path. It shows a competent crew clearing 80% and finishing in credit, and a
 careless one going backwards — but it cannot tell you whether the game *teaches* that.
 
 ## What the suites measure
@@ -285,16 +294,16 @@ through the real input path, three seeds each:
 
 | | |
 |---|---|
-| A competent crew | 79% of bags delivered, +1850 points (median of 3 seeds) |
-| A careless one | 29%, −2800 points (median of 3 seeds) |
-| Before the balance pass | 32% and −4000 points, on every seed, at every skill |
-| The authored shift | 34 bags across 3 flights, 11:32 |
-| Time to first bag aboard | 182 s |
-| Distance per shift | 670 m walked, 1039 m driven |
+| A competent crew | 80% of bags delivered, +2183 points (mean of 3 seeds) |
+| A careless one | 54%, −700 points (mean of 3 seeds) |
+| Before the M6 balance pass | 32% and −4000 points, on every seed, at every skill |
+| The authored shift | 42 bags across 3 flights (14 each), 11:32 |
+| Time to first bag aboard | 172 s |
+| Distance per shift | 657 m walked, 1029 m driven |
 | 124 bags and three loaded carts | 0.079 ms per step — 210x frame-budget headroom |
 | Bags stranded out of reach | 0 |
-| Queue depth | peaks at 6 bags waiting, mean 1.3 |
-| Where missed bags end up | 90% still sitting in a cart, 10% loose on the floor |
+| Queue depth | peaks at 10 bags waiting, mean 2.3 |
+| Where missed bags end up | 100% still sitting in a cart |
 | Fuzzing | 21 shifts, 221 min simulated, 0 errors, 0 invariant violations |
 | ⚠ Tractor top speed, throttle held | **7.00 m/s** — what the vehicle does |
 | ⚠ …what the bot manages over 52 m of empty ramp | **4.16 m/s**, reversing 69% of the way |
@@ -363,7 +372,7 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   reported OPEN by the m6 suite rather than assumed green — see *Phase 1 acceptance*
   above. Everything a program can check does pass; whether the game *teaches* what it
   needs to is the one thing still genuinely unknown, and it is the top of the list.
-- **The balance is one bot's opinion.** 79% for a competent crew is measured, but it is
+- **The balance is one bot's opinion.** 80% for a competent crew is measured, but it is
   measured against a policy I wrote: park the train on the hold door, fill one cart at the
   belt, one flight at a time, **and tow one cart at a time**. That last one matters most.
   The game has supported trains of up to sixteen carts since Milestone 2 — the m2 suite
@@ -379,7 +388,7 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   gets picked straight back up. Never shedding at all leaves the first cart coupled
   forever and drops the run count to one. Multi-cart hauling needs a genuinely different
   cart-management design **in the bot**, which is instrument work rather than game work.
-  **The number to beat is 79%.**
+  **The number to beat is 80%.**
 - **Spill tuning is still provisional.** A full-lock circle at top speed empties a cart.
   The bot sheds about four bags a shift and takes 23 corners above the safe speed, so it
   is not free — but nobody has decided whether that is the right price.

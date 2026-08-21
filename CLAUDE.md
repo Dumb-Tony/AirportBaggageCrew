@@ -63,10 +63,11 @@ Dev-wide catalog of what already exists and where to copy it from.
   telemetry from it. It found the game unwinnable: 32% delivered and a five-figure
   deficit on every seed at every skill. Three fixes (a loaded cart in reach now beats
   the hold when TAKING a bag; 50 bags → 34; every window +45%, shift 8:07 → 11:32) took
-  a competent crew to **79% and +1850 points**, a careless one to 29% and −2800.
-  (Those are MEDIANS across three seeds. The gating assertions used to run one seed, so a
-  tuning change that shifted seed 12345 by sixteen points would have flipped a claim
-  about the whole game.)
+  a competent crew to 76% and +1633 points, a careless one to 30% and −2467.
+  (Those were single-seed figures. The gating assertions now run three seeds and gate on
+  the median, because a tuning change that shifted seed 12345 by sixteen points would
+  otherwise have flipped a claim about the whole game. **Superseded 2026-08-21** — see
+  the bag-count entry below; the shift is 42 bags now and a competent crew clears 80%.)
   `tools/m6-tests.js` is GDD §29 made executable, with four criteria reported OPEN
   because they need external playtesters. Measured: 124 bags and three loaded carts cost
   0.079 ms per step, 210x frame-budget headroom; zero dead ends and zero unreachable
@@ -84,6 +85,19 @@ Dev-wide catalog of what already exists and where to copy it from.
   `tools/m7-tests.js` for working code no assertion would have missed, and
   `tools/_soak.js` fuzzing every invariant after every step. **1085 assertions, eight
   suites** + `docs/m6-title.png`.
+- 2026-08-21 — **THE RENDERER, THE SUITES, AND THE BAG COUNT.** Three render bugs that had
+  been shipping since M1 and were visible in this repo's own hero images: bags riding the
+  conveyor painted *under* the belt, the aircraft drawn back-to-front, cart bags sliding
+  under the bed. None of the four "the world paints" assertions could catch any of them —
+  each sampled one pixel at the canvas centre, which the ground fill alone satisfies.
+  `tools/m8-tests.js` replaces that with a DIFFERENTIAL (remove one class of thing,
+  re-render, count changed pixels: 0 px before the fix, 1127 after). Then a meta-audit of
+  the suites themselves found ~20 assertions that could not fail and the structural hole
+  that a green suite never proved how many assertions RAN — the runner now enforces a
+  per-suite count. `_soak.js` gained the one verb the fuzzer could not reach and
+  immediately found a real bug: one press of `X` threw a bag off a train standing still.
+  And `tools/_route.js` found the balance instrument cannot drive, which re-opened the bag
+  count and closed the GDD §20.2 deviation at 14/14/14. **1208 assertions, nine suites.**
 
 ## Phase 1 is done. What is actually left
 
@@ -470,22 +484,27 @@ Budget for re-tuning three phases, not for a four-line patch.
 
 ## Deviations from the GDD, and why
 
-- ⚠ **The authored shift is 34 bags; GDD §20.2 asks for 40-60, and §20.4 for 14-18 per
-  flight.** The Milestone 6 balance pass cut 16/16/18 to 11/11/12 because 50 bags was
-  roughly sixteen minutes of work in an eight-minute shift and every run of every seed
-  scored five figures negative. §31.4 grants "exact authored timings and bag counts
-  during balance passes", so this is inside the licence — but it is a real departure
-  from a stated range and §31.1.1 says to report it rather than let it pass unremarked.
-  The route is what makes 50 impossible, not the count: measured, 90% of missed bags are
-  still sitting in a cart and the belt queue never exceeds six.
-  ⚠ **That "the route makes 50 impossible" is now in doubt, and it should not be treated
-  as settled.** The route was measured with a bot that reverses roughly half of every
-  haul (see the Phase 1 section above and `tools\_route.js`), so the trip cost it reports
-  is about twice the real one — and the crew is ALREADY idle 284 s of a 692 s shift,
-  waiting on a belt that never queues more than six. Both of those point the same way:
-  there is room for more bags, and the reason 50 failed may simply be that nobody had a
-  crew that could drive. **Fix the bot, re-measure, and re-open the bag count before
-  accepting this deviation as permanent.**
+- ✅ **RESOLVED 2026-08-21 — the shift is 14/14/14, 42 bags.** It was 34 (11/11/12), which
+  broke GDD §20.2's stated 40-60 and §20.4's 14-18 per flight; the M6 balance pass had cut
+  it from 16/16/18 because 50 bags was sixteen minutes of work in an eight-minute shift.
+  What made 50 impossible was the eight-minute shift, and M6 then stretched every window
+  by 45% without putting the bags back. The telemetry said so plainly and nobody read it
+  that way: the crew was **idle 284 s of a 692 s shift** and the belt never queued past
+  six. Measured across three seeds and three skills, going to 42:
+
+  | bags | novice | average | veteran | dead ends |
+  |---|---|---|---|---|
+  | 34 | 34% / −2383 | 79% / +1783 | 73% / +1233 | none |
+  | **42** | **54% / −700** | **80% / +2183** | 63% / +533 | none |
+  | 45 | 43% / −2083 | 83% / +2767 | 61% / +333 | none |
+  | 48 | 47% / −1767 | 83% / +3033 | 60% / +283 | **present** |
+
+  42 is the pick and 45 is not, even though 45 scores an average crew higher: it costs a
+  first-timer 11 points of delivery and 1400 points, and GDD §29's open criteria are about
+  a first-timer completing the loop. **48 is out on a rule, not a preference** — it
+  reintroduces dead ends, and "no known blocker can make a bag unreachable" is §29.
+  An average crew now delivers 33.6 bags where it delivered 26.9: a quarter more work
+  done, for more points, with the same instrument.
 
 - **§21.1 "runs by opening `index.html`" is impossible with ES modules** (CORS blocks
   module loads on `file://`). Modules won because §21.2's whole architecture rests on

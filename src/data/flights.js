@@ -1,4 +1,4 @@
-/* The authored shift — GDD §20.4.
+﻿/* The authored shift — GDD §20.4.
  *
  * Milestone 1 uses these as STATIC DEFINITIONS only: a bag needs a flight to carry on
  * its tag, and the scanner needs a departure time to count down to. The flight STATE
@@ -22,7 +22,7 @@ export const FLIGHT_DEFS = [
     destinationCode: 'ATL', destinationName: 'Atlanta',
     gateId: 'gate_1', aircraftId: 'aircraft_1',
     tag: { color: '#e0574a', icon: 'triangle' },
-    bagCount: 11,
+    bagCount: 14,
     times: { bagAcceptanceMs: 5000, loadingMs: 30000, finalCallMs: 215000,
              holdClosingMs: 250000, departureMs: 275000 },
     // §20.4 twist: tutorial-friendly first flow — an even trickle, no surprises.
@@ -33,7 +33,7 @@ export const FLIGHT_DEFS = [
     destinationCode: 'ORD', destinationName: 'Chicago',
     gateId: 'gate_2', aircraftId: 'aircraft_2',
     tag: { color: '#4f8fd6', icon: 'square' },
-    bagCount: 11,
+    bagCount: 14,
     times: { bagAcceptanceMs: 85000, loadingMs: 115000, finalCallMs: 360000,
              holdClosingMs: 395000, departureMs: 420000 },
     // §20.4 twist: several heavy bags.
@@ -44,7 +44,7 @@ export const FLIGHT_DEFS = [
     destinationCode: 'MIA', destinationName: 'Miami',
     gateId: 'gate_1', aircraftId: 'aircraft_3',
     tag: { color: '#3fbf9b', icon: 'circle' },
-    bagCount: 12,
+    bagCount: 14,
     // Acceptance is late enough that SK307, which reuses gate 1, arrives after AB221's
     // aircraft is clear of the stand. GDD §20.4 forbids reusing a gate before the
     // prior aircraft clears, and that has to include the taxi in and the pushback, not

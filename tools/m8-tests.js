@@ -219,7 +219,16 @@ async function sectionB() {
 
   // Load it through the real containment API, so the location invariant is never
   // bypassed — this suite proves rendering, and must not manufacture illegal states.
-  const loose = Object.values(st.bagsById).filter((b) => b.location.type === 'floor').slice(0, 4);
+  /*
+   * Drive until there are enough bags on the FLOOR to load, rather than assuming any are
+   * there right now. How many have fallen off the belt by a given moment is a property of
+   * the seed and of the authored bag count — this asserted "at least two" and went red
+   * the day the shift went from 34 bags to 42, having found only one.
+   */
+  const onFloor = () => Object.values(st.bagsById).filter((b) => b.location.type === 'floor');
+  for (let i = 0; i < 60 * 180 && onFloor().length < 4; i++) game.frame(FRAME_MS, null);
+  const loose = onFloor().slice(0, 4);
+  note(`cart load: ${loose.length} bags on the floor at ${(st.simTimeMs / 1000).toFixed(0)}s`);
   let loaded = 0;
   for (const bag of loose) {
     try { moveBag(st, bag, { type: 'cart', id: cart.id }, game.bus, st.simTimeMs); loaded++; }
