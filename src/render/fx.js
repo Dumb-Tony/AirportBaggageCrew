@@ -67,13 +67,12 @@ export class FX {
     }
   }
 
-  /** Exhaust from a working tractor. */
-  exhaust(x, y) {
-    this._add(x, y, 0.6,
-      this.rng.range(-0.15, 0.15), this.rng.range(-0.25, -0.05), this.rng.range(0.5, 0.9),
-      this.rng.range(0.5, 0.9), this.rng.range(0.07, 0.13),
-      'rgba(150,150,155,', -0.4);
-  }
+  /* An `exhaust()` emitter and a `_exhaustAccum` field in the renderer used to live here
+   * as the two halves of a tractor-exhaust effect whose CALL SITE was never written.
+   * Both removed: dead code that looks finished is worse than no code, because the next
+   * reader spends time working out which half is broken. If exhaust is wanted, it wants
+   * a rate accumulator driven by the real frame delta like the rest of this file, and
+   * it should be written then rather than half-restored from here. */
 
   /** A bag going into the hold: a small confirming sparkle. */
   tick(x, y, color = 'rgba(120,220,140,') {

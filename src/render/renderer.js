@@ -85,8 +85,11 @@ export class Renderer {
     // GDD §16.6. Set by the bootstrap from the saved settings; the renderer never reads
     // the settings object itself.
     this.reducedMotion = false;
+    // GDD §16.6 again. The DOM interface scales through the `--ts` CSS variable, but the
+    // canvas has no cascade — every metre-space font here multiplies by this instead, so
+    // the two halves of the interface scale together. 1 is the authored size.
+    this.textScale = 1;
     this._patterns = null;   // built lazily: they need a live 2D context
-    this._exhaustAccum = 0;
   }
 
   /**
@@ -270,7 +273,10 @@ export class Renderer {
 
       ctx.save();
       ctx.translate(ac.x, ac.y);
-      ctx.rotate(ac.rot);
+      // NO rotation. The upright fuselage pass does not rotate either (see sprites.js),
+      // and the two halves have to agree or the aircraft draws back-to-front: `rot` is π
+      // for a stand-facing aircraft, so rotating only the ground pass put the fin over
+      // the nose gear and the wings on the wrong sides.
 
       ctx.fillStyle = '#aab1bd';
       ctx.beginPath();
@@ -379,11 +385,24 @@ export class Renderer {
     for (const v of Object.values(state.vehiclesById)) {
       list.push({ y: v.y + CONFIG.tractor.widthM / 2, t: T.TRACTOR, o: v });
     }
+    const conv = state.world.conveyor;
     for (const bag of Object.values(state.bagsById)) {
       const k = bag.location.type;
       if (k !== 'floor' && k !== 'conveyor' && k !== 'carried' && k !== 'cart') continue;
-      // A bag in a cart rides above the bed and must sort with the cart, not under it.
-      list.push({ y: bag.y + bag.heightM / 2 + (k === 'cart' ? 0.01 : 0), t: T.BAG, o: bag });
+      /*
+       * A bag that RIDES something sorts with its carrier, not with its own footprint.
+       * Its own y is the point it sits at on the deck, which is metres in front of the
+       * carrier's sort key — so the belt (13.7) painted over every bag on it (~13.2) and
+       * the conveyor read as a featureless empty bar. Sort a riding bag just behind its
+       * carrier and it lands on top of it.
+       */
+      let key = bag.y + bag.heightM / 2;
+      if (k === 'conveyor') key = conv.y0 + conv.widthM / 2 + 0.01;
+      else if (k === 'cart') {
+        const c = state.cartsById[bag.location.id];
+        if (c) key = c.y + CONFIG.cart.widthM / 2 + 0.01;
+      }
+      list.push({ y: key, t: T.BAG, o: bag });
     }
     if (!state.player.drivingId) {
       list.push({ y: state.player.y + CONFIG.player.radiusM, t: T.PLAYER, o: state.player });
@@ -486,7 +505,7 @@ export class Renderer {
       ctx.fillRect(x, -H.fuselage + 0.42, 0.5, 0.5);
     }
     ctx.fillStyle = 'rgba(52,60,74,0.92)';
-    ctx.font = '800 1.25px Quicksand, "Segoe UI", system-ui, sans-serif';
+    ctx.font = `800 ${1.25 * this.textScale}px Quicksand, "Segoe UI", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(ac.number, -1.5, -H.fuselage + 1.65);
 
@@ -503,7 +522,7 @@ export class Renderer {
     }
 
     ctx.fillStyle = ac.holdOpen ? 'rgba(94,201,106,0.95)' : 'rgba(255,90,90,0.95)';
-    ctx.font = '800 0.9px Quicksand, "Segoe UI", system-ui, sans-serif';
+    ctx.font = `800 ${0.9 * this.textScale}px Quicksand, "Segoe UI", system-ui, sans-serif`;
     ctx.fillText(ac.holdOpen ? 'HOLD OPEN' : 'HOLD CLOSED', -L / 2 - 4.2, -0.3);
   }
 
@@ -544,7 +563,7 @@ export class Renderer {
       ctx.fillStyle = cart.placardColor || '#888';
       roundRect(ctx, -0.62, sd / 2 - 0.1, 1.24, 0.56, 0.1); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
-      ctx.font = '800 0.42px Quicksand, "Segoe UI", system-ui, sans-serif';
+      ctx.font = `800 ${0.42 * this.textScale}px Quicksand, "Segoe UI", system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.fillText(cart.placardLabel, 0, sd / 2 + 0.19);
       ctx.restore();
@@ -617,7 +636,10 @@ export class Renderer {
     const w = bag.widthM;
     const sd = bag.heightM * camera.squash;
     const t = H.bag[bag.weightClass] || H.bag.normal;
-    const lift = bag.location.type === 'cart' ? H.cart : 0;
+    // A riding bag stands on its carrier's deck, not on the tarmac. Without the belt
+    // term every bag on the conveyor was drawn 0.55 m below the deck it was riding.
+    const lift = bag.location.type === 'cart' ? H.cart
+               : bag.location.type === 'conveyor' ? H.belt : 0;
 
     camera.beginUpright(ctx, bag.x, bag.y);
     if (lift) ctx.translate(0, -lift);
@@ -639,7 +661,11 @@ export class Renderer {
     drawIcon(ctx, bag.appearance.icon, -w / 2 + 0.06 + ts / 2, 0, ts * 0.30);
 
     ctx.fillStyle = 'rgba(255,255,255,0.94)';
-    ctx.font = '800 0.32px Quicksand, "Segoe UI", system-ui, sans-serif';
+    // The smallest and most important text in the game (GDD §7.2). `textScale` moves the
+    // four fonts that carry INFORMATION — this, the placard, the hold state and the
+    // aircraft number. Painted tarmac and the debug overlay deliberately stay put: they
+    // are world art and developer furniture, not the interface.
+    ctx.font = `800 ${0.32 * this.textScale}px Quicksand, "Segoe UI", system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(bag.destinationCode, 0.1 + ts / 2, 0.01);
 

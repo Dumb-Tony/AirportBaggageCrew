@@ -1,5 +1,9 @@
-# harness scratch — tools\smoketest.ps1 builds and deletes this
+# harness scratch — smoketest.ps1 and shot.ps1 build and delete these. The GUID in the
+# name is what stops two concurrent runs in this repo from serving each other's page.
+_smoketest-*.html
+_shot-*.html
 _smoketest.html
+_shot.html
 
 # OS / editor
 Thumbs.db

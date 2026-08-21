@@ -7,6 +7,15 @@
  * Pure maths + a canvas transform. No game rules here (GDD §31.3).
  */
 
+/**
+ * The readability floor, in CSS pixels per metre.
+ *
+ * 28 px/m puts a 0.32 m tag at 9 px and a 0.72 m bag at 20 px, which is the smallest the
+ * flight code stays readable at. `viewWidthM` 46 across a 1600 px window is 34.8 px/m, so
+ * this changes nothing at the size the game was tuned for and only bites below ~1290 px.
+ */
+export const MIN_PX_PER_M = 28;
+
 export class Camera {
   constructor({ worldW, worldH, paddingM = 0, maxPixelRatio = 2,
                 viewWidthM = 62, followLerp = 7, squash = 0.75 }) {
@@ -81,9 +90,18 @@ export class Camera {
       const h = this.worldH + this.paddingM * 2;
       this.scale = Math.min(this.cssW / w, this.cssH / h);
     } else {
-      // Zoom is set by how many metres must fit across the window — a readability
-      // budget, not a taste one. See CONFIG.render.viewWidthM.
-      this.scale = this.cssW / this.viewWidthM;
+      /*
+       * Zoom is set by how many metres must fit across the window — a readability budget,
+       * not a taste one (see CONFIG.render.viewWidthM). But `cssW / viewWidthM` alone is
+       * only a budget at ONE window size: a bag's tag is 0.32 m, so it renders at
+       * `cssW / 144` CSS pixels — 11 px at the 1600 px width the number was tuned at, and
+       * 7 px at 1024. Below roughly 1150 px the flight code stops being legible, and the
+       * tag is the only channel that says which aeroplane a bag belongs to (GDD §7.2).
+       *
+       * So the FLOOR is the invariant, not the metre count. A narrow window shows less of
+       * the airport rather than shrinking the writing.
+       */
+      this.scale = Math.max(this.cssW / this.viewWidthM, MIN_PX_PER_M);
     }
   }
 

@@ -321,7 +321,8 @@ export function drawAircraftGear(ctx, ac) {
   const L = ac.lengthM, W = ac.wingspanM;
   ctx.save();
   ctx.translate(ac.x, ac.y);
-  ctx.rotate(ac.rot);
+  // No rotation: the upright fuselage pass does not rotate either, and the two halves of
+  // one aeroplane have to be drawn in the same frame. See renderer.js `_drawAircraftGround`.
 
   // two engines slung under the wings
   ctx.fillStyle = '#8e96a3';

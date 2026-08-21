@@ -59,6 +59,7 @@ function applySettings(s) {
   // asks for no flashing, and a dimmed strobe is still a strobe.
   renderer.fx.enabled = !s.reducedMotion;
   renderer.reducedMotion = !!s.reducedMotion;
+  renderer.textScale = s.textScale;
   document.body.classList.toggle('reduced-motion', !!s.reducedMotion);
   document.documentElement.style.setProperty('--ts', String(s.textScale));
 }

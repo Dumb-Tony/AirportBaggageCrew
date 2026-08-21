@@ -303,6 +303,18 @@ the difference driving. Shorten the haul before touching the timetable again.
 
 ## Gotchas already paid for
 
+- ⚠ **`performance.now()` DOES NOT ADVANCE across synchronous work under this harness.**
+  Timing 240 `render()` calls reported 0.000 ms/frame, and a control loop of three
+  million `Math.sqrt` calls placed beside it reported 0.00 ms too — the clock is frozen
+  by `--virtual-time-budget`, the renderer is not infinitely fast. Any microbenchmark of
+  a synchronous block taken this way is meaningless. The per-step figures the other
+  suites print come from the same clock; they span far longer runs and do report
+  plausible numbers, but do not rest a new assertion on a short timed loop. **Count the
+  WORK instead** — m8 section H censuses canvas operations, which is deterministic,
+  identical on every machine, and closer to the question anyone actually has.
+- **Canvas 2D records a display list and rasterises it lazily.** A loop of `render()`
+  calls with no read-back never executes; `getImageData` is what forces the pipeline
+  through. This is a second, independent reason the naive timing loop above read zero.
 - **Headless Chrome in `--dump-dom` mode delivers 1–3 `requestAnimationFrame` callbacks
   in total, then stops.** `setTimeout` and `performance.now` keep working normally.
   Measured across three flag sets with `tools\_raf.js`. Live assertions must drive
@@ -369,6 +381,25 @@ the difference driving. Shorten the haul before touching the timetable again.
   the pool is provably much larger than the count. `buildBagSchedule` picked 4 priority
   bags from a 6-wide window that way; one edit to the twist numbers would have made it
   spin forever. Shuffle a candidate pool and slice instead.
+- ⚠ **A GREEN SUITE PROVES THE ASSERTIONS THAT RAN PASSED — not how many ran.** Most of
+  the coverage here loops over a collection (24 event names, 17 cue rows, three flights,
+  nine waypoints); a loop over an empty collection contributes ZERO assertions and stays
+  green, and so does a section that returns early. `tools\test.ps1` holds a per-suite
+  baseline count and `smoketest.ps1 -ExpectAssertions` fails the run when the number
+  moves. Update the baseline in the same commit as a deliberate change — that is the
+  moment somebody has to look at it.
+- **The verdict grep must be ANCHORED.** `smoketest.ps1` used to exit 0 on `-match
+  'ALL-PASS'` anywhere in the block, and every FAIL detail is a `JSON.stringify(payload)`
+  or an element's `textContent` — so one assertion whose detail carried that substring
+  would have turned a red run green. It now requires a line STARTING with `ALL-PASS` and
+  no line starting with `FAIL`.
+- ⚠ **TWO CONCURRENT RUNS IN THIS REPO used to serve each other's page.** The GUID stamp
+  defeated other PROJECTS holding the port, but the scratch FILENAME was fixed, so a
+  second run overwrote the first's `_smoketest.html`, the loser's server served the
+  winner's suite, both reported ALL-PASS under the wrong heading, and whichever finished
+  first deleted the file mid-run. The stamp is now part of the filename
+  (`_smoketest-<guid>.html`, `_shot-<guid>.html`). Any new tool that writes a scratch
+  file into the served root must do the same.
 - ⚠ **OTHER PROJECTS ON THIS MACHINE RUN THIS SAME HARNESS.** SmallTownEmergencyServices
   and TowBros were copied from here, so they have the same scratch filenames and compete
   for the same ports. A readiness probe that only checks for a 200 WILL eventually attach
@@ -444,6 +475,37 @@ Straight-down read as a floorplan — the user said so. GDD §19.1 permits "top-
 - **Depth-sort by base y.** `_collect()` fills a reused array and it is sorted every
   frame. A new entity type that stands up must be added there or it will draw at the
   wrong depth.
+- ⚠ **A bag that RIDES something sorts with its CARRIER, never by its own footprint.**
+  Its own y is where it sits on the deck, which is metres in front of the carrier's sort
+  key — so the belt (13.7) was drawn after every bag on it (~13.2) and painted over the
+  lot. The conveyor rendered as a featureless empty bar for six milestones, in a game
+  about bags arriving on a conveyor, and it was visible in the README's own hero image
+  the whole time. The same applies to the lift: a riding bag stands on its carrier's
+  deck (`H.belt`, `H.cart`), not on the tarmac.
+- ⚠ **The two aircraft passes must AGREE about rotation.** The ground pass rotated by
+  `ac.rot` and the upright pass did not; `rot` is π at a stand, so the shadow, gear and
+  wings were drawn back-to-front against the fuselage and the fin sat over the nose gear.
+  Neither pass rotates now. m8 C3 asserts the pair agree rather than asserting either one
+  alone, because one of each is the bug.
+- **The camera has a readability FLOOR as well as a budget.** `viewWidthM` caps how much
+  world is shown; `MIN_PX_PER_M` (28) caps how small the writing gets, and it wins below
+  a ~1290 px window — which is exactly where a 1280-wide laptop lands. A narrow window
+  shows less airport rather than shrinking a bag's tag below legibility. Assertions about
+  zoom must use the closed form `min(viewWidthM, cssW / MIN_PX_PER_M)`; the old
+  unconditional equality went red on the harness's own 1262 px canvas.
+- **Canvas text scales by hand, because a canvas has no cascade.** `--ts` carries GDD
+  §16.6's setting through `styles.css`; the canvas half multiplies by
+  `renderer.textScale` at each `ctx.font`. Only the four fonts that carry INFORMATION
+  scale — the bag tag, the cart placard, the hold state and the aircraft number. Painted
+  tarmac and the debug overlay deliberately do not: they are world art and developer
+  furniture, not interface. m8 D4/D5 assert both halves of that.
+- **"Did it paint" is not "did it paint the right thing in the right place".** Every
+  milestone suite sampled ONE pixel at the canvas centre and checked it was not black —
+  a gate the ground fill alone clears, which is how three visible bugs shipped. m8 uses a
+  DIFFERENTIAL instead: render, remove exactly one class of thing, render again, count
+  the pixels that changed. Removing the bags from the belt changed 0 px before the fix
+  and 1127 px after. Remove things by deleting them from `state.bagsById` and putting
+  them back — never by reassigning `bag.location`, which containment owns.
 - **Extrude by slices, translating BEFORE rotating.** Sweeping a rotated footprint up the
   screen is not a shape canvas will give you. Translate-then-rotate keeps the extrusion
   screen-vertical; rotate-then-translate tilts it with the object and looks broken.
@@ -497,8 +559,10 @@ second repo, no `dist/`. Pages takes ~30-60 s to rebuild.
 
 ```
 play.bat                    # serves on http://localhost:8361/
-tools\test.ps1              # all suites (898 assertions), exit 0 = green
-tools\test.ps1 -Only m6     # one suite
+tools\test.ps1              # all suites, exit 0 = green; enforces the assertion baseline
+tools\test.ps1 -Only m8     # one suite
+tools\shot.ps1 -Setup tools\_shot-vis-gate.js     -Out docs\vis-gate.png
+tools\shot.ps1 -Setup tools\_shot-vis-sortroom.js -Out docs\vis-sortroom.png
 
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js      # is rAF usable under the harness

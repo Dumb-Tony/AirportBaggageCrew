@@ -20,6 +20,10 @@ param(
   # and nothing about a different ENGINE. No Gecko or WebKit runtime exists on this
   # machine, so Firefox and Safari remain genuinely untested — see README.
   [ValidateSet("chrome", "edge")][string]$Browser = "chrome",
+  # The number of assertions this suite must report. 0 means "do not check" — that is the
+  # right setting for the diagnostics in tools\_*.js, which measure rather than gate.
+  # tools\test.ps1 holds the baseline for the eight real suites.
+  [int]$ExpectAssertions = 0,
   [switch]$Keep
 )
 $ErrorActionPreference = "Stop"
@@ -43,17 +47,22 @@ if (-not (Test-Path $testPath)) { Write-Host "Tests not found: $testPath" -Foreg
 # Scratch copy in the served root, so every relative module path still resolves.
 # -Encoding UTF8 is REQUIRED: PS 5.1's Get-Content defaults to ANSI, so a UTF-8 source
 # file round-trips into double-encoded mojibake and the test runs against a corrupt copy.
-$scratchName = "_smoketest.html"
+# The stamp is generated FIRST because the scratch FILENAME carries it. A fixed name was
+# safe against other projects (the stamp check catches those) and unsafe against a second
+# run of THIS one: two concurrent runs overwrote each other's scratch file, the loser's
+# server then served the winner's suite, and both reported ALL-PASS under the wrong
+# heading before one of them deleted the file out from under the other mid-run.
+$stamp = "ABCTEST-" + [System.Guid]::NewGuid().ToString("N")
+$scratchName = "_smoketest-$stamp.html"
 $scratch = Join-Path $root $scratchName
 $html = Get-Content $gamePath -Raw -Encoding UTF8
 if ($html -notmatch '</body>') { Write-Host "No </body> in $Game." -ForegroundColor Red; exit 2 }
 $inject = "<script type=""module"" src=""$($Tests -replace '\\','/')""></script>`r`n</body>"
 $html = $html -replace '</body>', $inject
 
-# Stamp it. Other projects on this machine run this same harness with the same scratch
-# filename, so "something answered 200 on the port" is NOT proof it is our server — it
-# can silently run the wrong game's page and report its results as ours.
-$stamp = "ABCTEST-" + [System.Guid]::NewGuid().ToString("N")
+# Stamp the CONTENT too. Other projects on this machine run this same harness, so
+# "something answered 200 on the port" is NOT proof it is our server — it can silently
+# run the wrong game's page and report its results as ours.
 $html = $html -replace '</head>', "<!--$stamp--></head>"
 Set-Content -Path $scratch -Value $html -Encoding utf8
 
@@ -104,4 +113,35 @@ foreach ($line in ($body -split "`n")) {
   elseif ($t -like '*FAILURES*') { Write-Host $t -ForegroundColor Red }
   else                           { Write-Host $t }
 }
-if ($body -match 'ALL-PASS') { exit 0 } else { exit 1 }
+
+<#
+  The verdict has to come from a LINE THE SUITE WROTE, not from a substring anywhere in
+  the block. Every FAIL detail is a JSON.stringify(payload), an element's textContent or
+  a className, so a bare `-match 'ALL-PASS'` could be satisfied by the very failure it
+  was meant to catch. Anchor it, and require that no line begins with FAIL.
+
+  The COUNT is the other half, and it is the one that was missing entirely. Every
+  assertion in this project that loops over a collection contributes nothing when the
+  collection is empty, and a section that returns early skips its remaining assertions —
+  both stay green while coverage silently drains away. Comparing the count against a
+  checked-in baseline is what turns "1086 assertions" from a number in a README into
+  something the harness enforces.
+#>
+$green = [regex]::Match($body, '(?m)^ALL-PASS(?:\s+(\d+))?')
+$red   = [regex]::IsMatch($body, '(?m)^(FAIL\b|FAILURES\b)')
+if (-not $green.Success -or $red) { exit 1 }
+
+if ($ExpectAssertions -gt 0) {
+  if (-not $green.Groups[1].Success) {
+    Write-Host "No assertion count in the ALL-PASS line, but $ExpectAssertions were expected." -ForegroundColor Red
+    exit 1
+  }
+  $got = [int]$green.Groups[1].Value
+  if ($got -ne $ExpectAssertions) {
+    $verb = if ($got -lt $ExpectAssertions) { "VANISHED rather than failed" } else { "were added" }
+    Write-Host "ASSERTION COUNT $got, expected $ExpectAssertions - $($ExpectAssertions - $got) assertions $verb." -ForegroundColor Red
+    Write-Host "If the change was deliberate, update the baseline in tools\test.ps1." -ForegroundColor Yellow
+    exit 1
+  }
+}
+exit 0

@@ -20,16 +20,18 @@ $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 if (-not (Test-Path $chrome)) { $chrome = "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe" }
 if (-not (Test-Path $chrome)) { Write-Host "Chrome not found." -ForegroundColor Red; exit 2 }
 
-$scratchName = "_shot.html"
+# Stamp first: the scratch FILENAME carries it, so two concurrent shots in this repo
+# cannot overwrite each other's page. See tools\smoketest.ps1 for what that cost.
+$stamp = "ABCSHOT-" + [System.Guid]::NewGuid().ToString("N")
+$scratchName = "_shot-$stamp.html"
 $scratch = Join-Path $root $scratchName
 $html = Get-Content (Join-Path $root "index.html") -Raw -Encoding UTF8
 if ($Setup) {
   $inject = "<script type=""module"" src=""$($Setup -replace '\\','/')""></script>`r`n</body>"
   $html = $html -replace '</body>', $inject
 }
-# Stamp the scratch copy so the server check can prove the port is serving THIS project
-# and not another game that happens to hold the port. See tools\_serve-mine.ps1.
-$stamp = "ABCSHOT-" + [System.Guid]::NewGuid().ToString("N")
+# Stamp the content so the server check can prove the port is serving THIS project and
+# not another game that happens to hold the port. See tools\_serve-mine.ps1.
 $html = $html -replace '</head>', "<!--$stamp--></head>"
 Set-Content -Path $scratch -Value $html -Encoding utf8
 

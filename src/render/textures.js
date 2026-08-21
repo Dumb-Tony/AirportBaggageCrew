@@ -52,7 +52,11 @@ export function pattern(ctx, tile) {
 /* ── the surfaces ─────────────────────────────────────────────────────────── */
 
 /** Ramp and apron: aggregate speckle, tyre streaks, the odd patch and crack. */
-export const texAsphalt = (base, key) => canvasTex(192, 192, `asphalt|${key}`, (x, W, HH, rng) => {
+// The BASE COLOUR is part of the cache key, not just the caller's label. Every tile is
+// memoised for the life of the page, so a key that ignored the colour would hand back
+// the apron's grey the first time anybody asked for a differently-coloured asphalt under
+// an existing name — a silent wrong-colour bug with no error and no way to invalidate it.
+export const texAsphalt = (base, key) => canvasTex(192, 192, `asphalt|${key}|${base}`, (x, W, HH, rng) => {
   x.fillStyle = base; x.fillRect(0, 0, W, HH);
 
   for (let i = 0; i < 1700; i++) {
