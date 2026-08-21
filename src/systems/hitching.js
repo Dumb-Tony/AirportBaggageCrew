@@ -22,7 +22,7 @@ const MAX_TRAIN = 16;   // runaway guard: a cycle must never spin forever
 
 /** Put one cart's bags back in its slots. The same rule `syncCartBagPositions` applies to
  *  every cart once a step; needed here because `hitch` moves a cart after that has run. */
-function pinCartLoad(state, cart) {
+export function pinCartLoad(state, cart) {
   for (let i = 0; i < cart.bagIds.length; i++) {
     const bag = state.bagsById[cart.bagIds[i]];
     if (!bag) continue;

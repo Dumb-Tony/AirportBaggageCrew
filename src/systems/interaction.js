@@ -24,7 +24,7 @@ import { chargeFrac } from '../entities/player.js';
 import { pushOutOfWalls } from './physics.js';
 import { cartContains, cartRoomFor, nextPlacard } from '../entities/cart.js';
 import { dismountPoint } from '../entities/tractor.js';
-import { hitchCandidate, hitch, unhitchTail, trainOf } from './hitching.js';
+import { hitchCandidate, hitch, unhitchTail, trainOf, updateTrain, pinCartLoad } from './hitching.js';
 import { holdContains, aircraftHoldZone } from '../entities/aircraft.js';
 
 const FLIGHT_IDS = FLIGHT_DEFS.map((f) => f.id);
@@ -296,6 +296,38 @@ export function recoverStuck(state, bus = null, simTimeMs = 0) {
   } else if (pushOutOfWalls(p, p.radiusM)) {
     p.vx = 0; p.vy = 0;
     moved.push(p.id);
+  }
+
+  /*
+   * SETTLE THE TRAIN BEFORE LEAVING, or one press of X throws a bag off a train that is
+   * standing perfectly still.
+   *
+   * `pushOutOfWalls` is a teleport, and every push above knocks the train off its
+   * drawbar constraint — moving the TRACTOR is enough on its own, because the tow point
+   * goes with it. `updateTrain` guards against the push it performs itself (that is what
+   * `solvedX/solvedY` are for) but it cannot guard a teleport applied from outside, and
+   * `recoverStuck` runs LATER in the step than it does. So the next step's constraint
+   * snap gets differenced as motion: measured, a loaded cart standing at (17.68, 9.97)
+   * with full stability and nobody touching the throttle lost a bag to a single press.
+   *
+   * Re-seating it here leaves nothing to snap. `dtSec = 0` is the point — the whole
+   * stability model is inside `if (dtSec > 0)`, so this places the carts and skips the
+   * differencing rather than feeding it a teleport. `hitch()` solves the identical
+   * problem the identical way, and CLAUDE.md already records the rule this is the second
+   * call site of: nothing may difference position across a push.
+   */
+  if (moved.length && p.drivingId) {
+    const v = state.vehiclesById[p.drivingId];
+    if (v) {
+      updateTrain(state, v, 0);
+      // The load is pinned once a step, right after the train is placed, and that has
+      // already happened by now — so without this a recovered cart is drawn a metre from
+      // its own bags for exactly one frame.
+      for (const id of trainOf(state, v)) {
+        const cart = state.cartsById[id];
+        if (cart) pinCartLoad(state, cart);
+      }
+    }
   }
 
   if (moved.length && bus) bus.emit(EVENTS.RECOVERED, { ids: moved }, simTimeMs);

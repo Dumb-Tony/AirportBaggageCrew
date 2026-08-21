@@ -14,11 +14,14 @@ import { Input } from '../src/core/input.js';
 import { memoryStorage } from '../src/systems/save.js';
 import { GameClock } from '../src/core/clock.js';
 import { playShift, SKILLS } from './_bot.js';
+import { sweep } from './_invariants.js';
 
 const lines = [];
 const say = (s) => lines.push(s);
 
 let _pre = null;
+/** The default status is a PASS, which is only safe because every call site passes one
+ *  explicitly — see the argument at the final emit, at the bottom of the file. */
 function emit(status) {
   if (!_pre) {
     _pre = document.createElement('pre');
@@ -47,16 +50,44 @@ const SEEDS = [12345, 777, 2468];
   say('walking, grabbing, placarding, hitching, driving and carrying bags into holds.');
   say('');
 
+  /* Everything that would make the numbers below fiction rather than telemetry. A report
+   * this file cannot stand behind must not print a green verdict — see the emit at the
+   * bottom of the file for why that is not the free choice it looks like. */
+  const problems = [];
+
   const rows = [];
   for (const skill of Object.keys(SKILLS)) {
     emit(`RUNNING ${skill}...`);
     for (const seed of SEEDS) {
       const g = newGame(seed);
       const input = new Input(window);
-      const r = playShift(g, input, skill);
+      let r = null;
+      try {
+        r = playShift(g, input, skill);
+      } catch (e) {
+        problems.push(`${skill}/${seed} threw: ${String((e && e.stack) || e).split('\n')[0]}`);
+        continue;
+      }
+      // The same invariants `tools\_soak.js` checks after every step, checked once at the
+      // whistle. A shift that ends with a bag in two places measured nothing.
+      const bad = sweep(g.state, null);
+      if (bad.length) problems.push(`${skill}/${seed} invariant: ${bad[0]}`);
+      // A run that produced no flights, no bags or no clock is a harness failure wearing a
+      // report's clothes, and every average below would quietly be computed over it.
+      if (!r.perFlight.length || !r.owed || !r.simMs || !Object.keys(r.bot.phaseMs).length) {
+        problems.push(`${skill}/${seed} produced no usable report: ` +
+                      `${r.perFlight.length} flights, ${r.owed} owed, ${r.simMs}ms`);
+      }
       rows.push({ seed, ...r });
     }
   }
+  const expectedRows = Object.keys(SKILLS).length * SEEDS.length;
+  if (rows.length !== expectedRows) {
+    problems.push(`${rows.length} shifts reported, ${expectedRows} expected`);
+  }
+  // Every average, every percentage and the whole §28.4 block below is computed over
+  // `avgRows`. Empty, they are all NaN and every one of them still prints.
+  if (!rows.some((r) => r.skill === 'average')) problems.push('no average-skill shift ran');
 
   /* ── headline: can a person actually do this shift? ─────────────────────── */
   say('── DELIVERY BY SKILL ───────────────────────────────────────────────────');
@@ -185,5 +216,28 @@ const SEEDS = [12345, 777, 2468];
       `   tractor top speed ${CONFIG.tractor.maxSpeed} m/s` +
       `   walk ${CONFIG.player.maxSpeed} m/s`);
 
-  emit();
+  say('');
+  say('── IS THIS REPORT WORTH READING? ───────────────────────────────────────');
+  if (problems.length) for (const p of problems) say(`  ${p}`);
+  else {
+    say(`  yes — ${rows.length} shifts played to the whistle, no exceptions, ` +
+        `every skill and seed reported, every one ending on a sound world`);
+  }
+
+  /*
+   * THE ARGUMENT AGAINST `emit()` WITH NO ARGUMENT.
+   *
+   * `emit`'s default status is 'ALL-PASS  balance report complete', and this used to be a
+   * bare `emit()` — so the last line of the page said ALL-PASS whatever the telemetry
+   * said, and `tools\smoketest.ps1` (which anchors its verdict on `^ALL-PASS`) exited 0
+   * even if every shift had thrown. That is harmless exactly as long as this file stays a
+   * diagnostic nobody gates on, and `tools\test.ps1` deliberately does not run it — but a
+   * suite list is one line, and the day somebody adds it they get a permanently green
+   * suite that can never go red. `tools\_soak.js` shares the same default and is not
+   * exposed to this, because its final emit is conditional. So is this one now.
+   */
+  emit(problems.length
+    ? `FAILURES  ${problems.length} problem${problems.length === 1 ? '' : 's'} — ` +
+      'the telemetry above is not trustworthy'
+    : `ALL-PASS  balance report complete across ${rows.length} played shifts`);
 })().catch((e) => { say('THREW: ' + ((e && e.stack) || e)); emit('FAILURES  1 of 1'); });
