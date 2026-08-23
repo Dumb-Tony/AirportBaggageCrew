@@ -135,6 +135,22 @@ const SEEDS = [12345, 777, 2468];
   say(`time to first bag aboard   ${firstLoads.length ? secs(firstLoads.reduce((a, b) => a + b, 0) / firstLoads.length) : 'NEVER'}`);
   say(`cart trips to the gates    ${A((r) => r.bot.hauls).toFixed(1)}`);
   say(`carts swapped on the hitch ${A((r) => r.bot.cartsDropped || 0).toFixed(1)}`);
+  /* MULTI-CART HAULING, which the README spent a whole limitation on. The game has
+   * supported trains since M2 and the bot ignored them until 2026-08-23; these two lines
+   * are how you tell whether it is actually using them or has quietly gone back to one
+   * cart at a time. A tour stop is a gate served WITHOUT driving home first. */
+  say(`longest train coupled      ${A((r) => r.bot.trainLength || 1).toFixed(1)} carts`);
+  say(`gates served per round tri ${(A((r) => (r.bot.tourStops || 0)) / Math.max(1, A((r) => r.bot.hauls)) + 1).toFixed(2)}`);
+  say(`  ...extra gates on a tour ${A((r) => r.bot.tourStops || 0).toFixed(1)}`);
+  say(`  tour checks / train len  ${A((r) => r.bot.tourChecks || 0).toFixed(1)} / ` +
+      `${(A((r) => r.bot.tourTrainSum || 0) / Math.max(0.001, A((r) => r.bot.tourChecks || 0))).toFixed(2)}`);
+  say(`  ...rejected: empty ${A((r) => r.bot.tourEmptyCart || 0).toFixed(1)}, ` +
+      `evaluated ${A((r) => r.bot.tourEvaluated || 0).toFixed(1)}, ` +
+      `hold not open yet ${A((r) => r.bot.tourTooEarly || 0).toFixed(1)}, ` +
+      `hold already shut ${A((r) => r.bot.tourTooLate || 0).toFixed(1)}, ` +
+      `of ${A((r) => r.bot.tourOthers || 0).toFixed(1)} other carts seen`);
+  say(`  SECOND GATE AVAILABLE AT ALL ${A((r) => r.bot.tourOpportunity || 0).toFixed(1)} times ` +
+      `(any cart anywhere, loaded, hold open — zero means the TIMETABLE has no second gate)`);
   say(`bags picked up             ${A((r) => r.bot.bagsCarried).toFixed(0)}`);
   say(`  ...loaded into carts     ${A((r) => r.bot.cartLoads).toFixed(0)}`);
   say(`  ...loaded into holds     ${A((r) => r.bot.holdLoads).toFixed(0)}`);

@@ -98,6 +98,26 @@ Dev-wide catalog of what already exists and where to copy it from.
   immediately found a real bug: one press of `X` threw a bag off a train standing still.
   And `tools/_route.js` found the balance instrument cannot drive, which re-opened the bag
   count and closed the GDD §20.2 deviation at 14/14/14. **1208 assertions, nine suites.**
+- 2026-08-23 — **THE INSTRUMENT CAN DRIVE, AND THE SHIFT IS 51 BAGS.** `CrewBot`'s reverse
+  branch steered to aim the tractor's REAR at its target, so a target directly behind
+  produced no steering and it reversed in a straight line for however far away it was — it
+  drove half of every haul home backwards at the 3 m/s cap. Fixed: the nose turns toward
+  the target when reversing to turn round, the tow point only when backing ONTO a drawbar.
+  Open run **4.16 → 6.76 m/s**, throttle 31% → 97%.
+  The train is now PERMANENT (up to three carts, never shed), which is the cart-management
+  design the README had carried as an open limitation since M6 — three earlier attempts
+  failed on shedding, and the answer was to stop shedding.
+  Then the bag count was re-swept, because the first sweep had been measured on the
+  instrument that could not drive: **42 → 51 bags (17 per flight)**, which is deeper into
+  GDD §20.4's 14-18 and §20.2's 40-60. A competent crew **85% / +3350**, a careless one
+  **48% / −1583** — and that last number matters, because at 42 bags a careless crew had
+  started finishing in CREDIT and m6 D6 ("nobody clears it without trying") went red. The
+  bigger shift restores the pressure the scoring is supposed to express.
+  Raising the count then surfaced TWO real physics bugs that had been shipping since M1,
+  both found by the invariant sweep rather than by eye: `separate()` normalised a
+  degenerate contact with a divisor of 1e-6 and flung a bag **181 km** out of the world,
+  and separation could shove a bag through the sort-room wall where nothing could reach
+  it. **1321 assertions, ten suites, soak clean across 21 fuzzed shifts.**
 
 ## Phase 1 is done. What is actually left
 
@@ -114,8 +134,17 @@ keeps up with sorting; the constraint is trips to the gate. That is why the "vet
 profile scores WORSE than "average" — it hauls at six bags instead of eight and spends
 the difference driving.
 
-⚠ **BUT DO NOT ACT ON THAT BY SHORTENING THE HAUL. `tools\_route.js` measured it and the
-map is not the problem — the instrument is.** The tractor reaches **7.00 m/s** in 1.5 s
+✅ **FIXED 2026-08-23 — the paragraph above is the state of the world BEFORE the bot could
+drive, and it is kept because the reasoning it contains was wrong in an instructive way.**
+`_driveTo` now steers the nose toward the target when reversing to turn round, and aims
+the tow point only when backing ONTO a drawbar. The open run went from 4.16 m/s to
+**6.76 m/s**, throttle held 97% of the time, 94% of it at top speed. The train is also
+permanent now — up to three carts, never shed. A competent crew delivers **85%** of a
+**51-bag** shift for +3350, a careless one **48%** for −1583. See the 2026-08-23 status
+entry. What follows is why none of that was visible for two milestones.
+
+⚠ **DO NOT ACT ON THE PARAGRAPH ABOVE BY SHORTENING THE HAUL. `tools\_route.js` measured
+it and the map was not the problem — the instrument was.** The tractor reaches **7.00 m/s** in 1.5 s
 with the throttle simply held down, towing or not. Across fifty-two metres of completely
 empty ramp `CrewBot` averages **4.16 m/s**, holding the throttle 31% of the time and
 reverse or brake 69%, with a mean SIGNED speed of **0.03 m/s** — it travels backwards
@@ -339,6 +368,23 @@ Budget for re-tuning three phases, not for a four-line patch.
   `recoverStuck` is only reachable from a MANUFACTURED state — which is why the bug above
   survived. `tools/_invariants.js` `recoverFuzz()` wedges things on purpose for that
   reason; a verb the fuzzer cannot reach is a verb the fuzzer is not testing.
+- ⚠⚠ **A DEGENERATE NORMAL MUST STILL BE A UNIT VECTOR.** `separate()`'s coincident guard
+  set `dx = 1, dy = 0, d = 1e-6` and then normalised with `dx / d` — a "unit" normal a
+  million units long, which took the separation impulse with it. Two bags landing on
+  exactly the same float position threw one of them **181 kilometres** along x, in a
+  120 m world, in one step, with its velocity still reading zero. It shipped from M1 and
+  only surfaced when the shift grew to 51 bags and the belt piled deep enough to stack two
+  bags precisely. The assertion that was supposed to cover it — "coincident circles
+  separate deterministically" — checked only that they were no longer in the same place,
+  which being 181 km apart satisfies perfectly. m1 E9b now checks the distance.
+- ⚠ **SEPARATION IS A TELEPORT TOO, so a separated bag has to be pushed out of walls.**
+  `separate` writes positions directly rather than going through `moveWithWalls`, so a
+  pile against the sort-room's west wall shoves the outermost bags through it — and
+  `moveWithWalls` then refuses to bring them back, because it never commits a move whose
+  destination is blocked. A novice crew stood at (4.9, 13) reaching for a bag at (3.4, 13)
+  behind a wall at x = 4, and re-tried every six seconds for the last minute of the shift.
+  That is a GDD §29 blocker. This is the FOURTH call site of the rule below and the first
+  one about bags; when you add a fifth, push there too.
 - **Anything POSITIONED rather than moved must be pushed out of walls.** `moveWithWalls`
   only commits a move whose destination is clear and never updates position while
   blocked, so an entity that ends up inside geometry can never leave — which reads as
@@ -509,7 +555,29 @@ Budget for re-tuning three phases, not for a four-line patch.
 
 ## Deviations from the GDD, and why
 
-- ✅ **RESOLVED 2026-08-21 — the shift is 14/14/14, 42 bags.** It was 34 (11/11/12), which
+- ✅ **RESOLVED — the shift is 17/17/17, 51 bags** (2026-08-23; it was 14/14/14 for a day,
+  see below). Both GDD ranges are satisfied: §20.4 wants 14-18 per flight, §20.2 wants
+  40-60 in total. Re-swept once the bot could drive, because the first sweep was measured
+  on an instrument that reversed half of every haul:
+
+  | per flight | total | novice | average | veteran | dead ends |
+  |---|---|---|---|---|---|
+  | 14 | 42 | 64% / +250 | 84% / +2517 | 66% / +533 | none |
+  | 15 | 45 | 61% / −17 | 83% / +2800 | 63% / +250 | present |
+  | 16 | 48 | 54% / −850 | 80% / +2617 | 62% / −50 | present |
+  | **17** | **51** | **48% / −1583** | **85% / +3350** | 58% / −567 | **none** |
+  | 18 | 54 | 53% / −1200 | 84% / +3517 | 57% / −800 | present |
+
+  51 is the pick on three counts at once: the best average score, zero dead ends, and a
+  careless crew back in DEBT. That last one is not a preference — at 42 bags a novice
+  finished on +250 and m6 D6 went red, because "nobody clears it without trying" is a
+  design claim the suite encodes and a game anybody can finish has no pressure. 54 scores
+  a competent crew slightly higher and reintroduces dead ends, which is a §29 rule.
+  ⚠ The whole table above is worth more than the number it produced: **it had to be
+  re-measured because the instrument changed.** The first version of this sweep, on the
+  old bot, picked 42 and rejected 48 for dead ends. Both conclusions were artefacts.
+
+- **Superseded, kept for the reasoning — the 2026-08-21 pass that took it to 42.** It was 34 (11/11/12), which
   broke GDD §20.2's stated 40-60 and §20.4's 14-18 per flight; the M6 balance pass had cut
   it from 16/16/18 because 50 bags was sixteen minutes of work in an eight-minute shift.
   What made 50 impossible was the eight-minute shift, and M6 then stretched every window

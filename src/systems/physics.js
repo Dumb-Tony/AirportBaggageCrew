@@ -68,12 +68,26 @@ export function separate(a, b, minDist, weightA = 0.5, strength = 0.55) {
   let d = Math.hypot(dx, dy);
   if (d >= minDist) return false;
 
-  // Exactly coincident: pick a fixed axis rather than a random one, so a pile settles
-  // the same way on every replay of the same seed.
-  if (d < 1e-6) { dx = 1; dy = 0; d = 1e-6; }
+  /*
+   * Exactly coincident: pick a fixed axis rather than a random one, so a pile settles the
+   * same way on every replay of the same seed.
+   *
+   * ⚠ THE NORMAL MUST BE A UNIT VECTOR. This used to set `dx = 1, dy = 0, d = 1e-6` and
+   * then normalise with `dx / d` — which is 1e6, not 1, so the "unit" normal was a million
+   * units long and the separation impulse was scaled by a million with it. Two bags landing
+   * on exactly the same float position threw one of them 181 km along the x axis, in a
+   * 120 m world, in a single step, with its velocity still reading zero. It had been in
+   * here since Milestone 1 and only showed up when the shift went to 51 bags and the belt
+   * piled deep enough to stack two bags precisely.
+   *
+   * `d` stays 0 for the OVERLAP term — coincident bags want the full push — and the
+   * normal is taken separately so it cannot inherit the degenerate divisor.
+   */
+  let nx, ny;
+  if (d < 1e-6) { nx = 1; ny = 0; d = 0; }
+  else { nx = dx / d; ny = dy / d; }
 
   const overlap = (minDist - d) * strength;
-  const nx = dx / d, ny = dy / d;
   a.x -= nx * overlap * weightA;
   a.y -= ny * overlap * weightA;
   b.x += nx * overlap * (1 - weightA);

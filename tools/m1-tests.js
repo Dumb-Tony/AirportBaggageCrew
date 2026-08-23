@@ -472,10 +472,35 @@ lines.push('--- E. arcade physics (GDD 6.2, 21.6, 24.3) ---');
   ok('E8 weightA 0 pins the first and moves only the second',
      pinned.x === 10 && pushed.x > 10.2);
 
+  /*
+   * ⚠ COINCIDENT BODIES, AND THE ASSERTION THAT DID NOT CATCH THE BUG IN THEM.
+   *
+   * E9 used to be `c1.x !== c2.x || c1.y !== c2.y` — "they are no longer in the same
+   * place" — and it passed for the entire life of the project while `separate` was
+   * throwing one of them 181 KILOMETRES along the x axis. The degenerate guard set
+   * `dx = 1, dy = 0, d = 1e-6` and then normalised with `dx / d`, so the unit normal was
+   * a million units long and took the impulse with it. Being far apart satisfied the old
+   * assertion perfectly.
+   *
+   * The property is that they end up EXACTLY minDist apart, like any other pair.
+   */
   const c1 = { x: 5, y: 5 }, c2 = { x: 5, y: 5 };
-  separate(c1, c2, 0.8, 0.5, 1.0);
-  ok('E9 exactly coincident circles separate deterministically, not randomly',
-     c1.x !== c2.x || c1.y !== c2.y);
+  ok('E9 exactly coincident circles are separated at all', separate(c1, c2, 0.8, 0.5, 1.0));
+  near('E9b ...to exactly minDist, not a million times it',
+       Math.hypot(c2.x - c1.x, c2.y - c1.y), 0.8, 1e-9);
+  ok('E9c ...along a fixed axis, so a pile settles identically on every replay',
+     Math.abs(c1.y - 5) < 1e-9 && Math.abs(c2.y - 5) < 1e-9,
+     `y moved to ${c1.y} / ${c2.y}`);
+  ok('E9d ...and neither of them leaves the world',
+     Math.abs(c1.x - 5) < 1 && Math.abs(c2.x - 5) < 1,
+     `moved ${(c1.x - 5).toFixed(2)} and ${(c2.x - 5).toFixed(2)} m`);
+
+  /* The same thing one float apart rather than exactly on top, which is the case that
+   * actually occurs: two bags landing off the belt onto the same spot. */
+  const n1 = { x: 5, y: 5 }, n2 = { x: 5 + 1e-9, y: 5 };
+  separate(n1, n2, 0.8, 0.5, 1.0);
+  near('E9e a pair one float apart is separated by exactly minDist too',
+       Math.hypot(n2.x - n1.x, n2.y - n1.y), 0.8, 1e-6);
 
   eq('E10 approach never overshoots its target', approach(0, 10, 3), 3);
   eq('E11 approach lands exactly on target', approach(9, 10, 3), 10);

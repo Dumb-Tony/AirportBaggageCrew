@@ -7,7 +7,7 @@
  */
 
 import { CONFIG } from '../config.js';
-import { moveWithWalls, applyFriction, separate } from './physics.js';
+import { moveWithWalls, applyFriction, separate, pushOutOfWalls } from './physics.js';
 import { moveBag } from './containment.js';
 import { createBag } from '../entities/bag.js';
 import { EVENTS } from '../core/eventBus.js';
@@ -198,6 +198,28 @@ export function stepBags(state, dtSec, grid) {
       // weightA = 0 pins the player and moves only the bag
       separate(p, bag, p.radiusM + bag.radiusM, 0, CONFIG.player.pushStrength);
     }
+  }
+
+  /*
+   * 3b. ⚠ SEPARATION IS A TELEPORT, SO EVERY BAG IT MOVED HAS TO BE PUSHED OUT OF WALLS.
+   *
+   * `separate` writes positions directly — it does not go through `moveWithWalls` — so a
+   * pile against the sort-room's west wall shoves the outermost bags straight through it.
+   * `moveWithWalls` then refuses to move them out again, because it never commits a move
+   * whose destination is blocked, and the bag is stranded somewhere no player can reach.
+   *
+   * Measured on a 51-bag shift: a novice crew stood at (4.9, 13) reaching for a bag at
+   * (3.4, 13) — behind a wall at x = 4 — and re-tried every six seconds for the last
+   * minute of the shift, eight dead ends on one seed. That is GDD §29's "no known blocker
+   * can make a required bag permanently unreachable", and it is the same rule CLAUDE.md
+   * already records for `exitVehicle`, `hitch` and `recoverStuck`: anything POSITIONED
+   * rather than moved must be pushed out of walls afterwards. This is the fourth call
+   * site of that rule and the first one that was about bags.
+   */
+  for (const id of ids) {
+    const bag = state.bagsById[id];
+    if (bag.location.type !== 'floor') continue;
+    pushOutOfWalls(bag, bag.radiusM);
   }
 
   // 4. vehicles scatter luggage harder than people do — GDD §6.5, §8.2.

@@ -504,8 +504,11 @@ lines.push('--- D. GDD §29 Quality: a shift somebody played ---');
 
   // "No known blocker can make a required bag permanently unreachable."
   for (const { seed, r } of results) {
-    eq(`D1.${r.skill}.${seed} nothing stranded the crew`, r.bot.deadEnds.length, 0,
-      JSON.stringify(r.bot.deadEnds.slice(0, 3)));
+    // `ok`, not `eq`: eq takes three arguments, so the JSON detail on the end of this was
+    // being dropped on the floor and a failure printed "got 8, want 0" with no hint of
+    // WHERE the crew was stranded. Same shape as the m4 E6 bug the suite meta-audit found.
+    ok(`D1.${r.skill}.${seed} nothing stranded the crew`, r.bot.deadEnds.length === 0,
+      `${r.bot.deadEnds.length} stranded: ${JSON.stringify(r.bot.deadEnds.slice(0, 3))}`);
     // §29 forbids a bag being PERMANENTLY unreachable. One that has ridden on down the
     // belt by the time you get there is not that — the bot sets it aside and comes back,
     // and D9/D10 prove every bag is eventually accounted for. A real blocker would be one

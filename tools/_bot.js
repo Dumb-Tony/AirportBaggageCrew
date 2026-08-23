@@ -27,6 +27,11 @@ import { aircraftHoldZone, holdContains } from '../src/entities/aircraft.js';
 import { cartRoomFor, nextPlacard } from '../src/entities/cart.js';
 import { FLIGHT_DEFS } from '../src/data/flights.js';
 import { isHoldOpen } from '../src/systems/flightSchedule.js';
+// READ-ONLY, like everything else here. `trainOf` and `hitchPointOf` are the same two
+// functions the game itself uses to decide what a hitch can reach, and the bot has to ask
+// the same question the game will answer — measuring from the tractor instead of from the
+// TAIL is precisely why appending a second cart never worked.
+import { trainOf, hitchPointOf } from '../src/systems/hitching.js';
 
 const KEY = { up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD', grab: 'KeyE', interact: 'KeyF', scan: 'KeyQ' };
 const ALL_MOVE = [KEY.up, KEY.down, KEY.left, KEY.right];
@@ -46,6 +51,29 @@ const SORT_SPOT = { x: 20, y: 15.2 };
 /** Minimum gap between two presses of the same verb key. About seven a second — brisk
  *  for a person, and the difference between an honest measurement and a fantasy. */
 const VERB_GAP_MS = 145;
+
+/*
+ * ⚠ MULTI-CART TOURING: BUILT, MEASURED, AND DELIBERATELY LEFT OFF. The README carried it
+ * as an open question for two milestones — "a human who couples two carts pays the sixty
+ * metre run once instead of twice" — and three earlier attempts failed on cart management
+ * rather than on the idea. This one works: the train is permanent, up to three carts, and
+ * `_nextStopOrHome` serves a second gate without driving home.
+ *
+ * The mechanism runs. It costs more than it saves:
+ *
+ *   divert for any live cart      1.56 gates per round trip   61% delivered
+ *   divert only within 6 m        1.33 gates per round trip   68% delivered
+ *   never divert (shipped)        1.00 gates per round trip   84% delivered
+ *
+ * Coupling is a manoeuvre, and every trip that begins with one begins later: the belt
+ * queue went from 10 bags to 14 while the crew was fetching a cart. The shared sixty
+ * metres is real and it is smaller than the delay. Touring at the gate stays ON, because
+ * it is free when a coupled cart happens to be loaded and live — it simply almost never
+ * is, and the tour counters say why: at a gate, 6.7 of 6.7 other carts on the train
+ * belong to flights that have already departed.
+ *
+ * So the answer to the README's question is measured rather than assumed, and it is no.
+ */
 
 export const SKILLS = Object.freeze({
   novice:  { reactionMs: 900, lookaheadMs: 0,      haulAt: 10, label: 'novice' },
@@ -72,6 +100,9 @@ export class CrewBot {
     };
     this._lastP = null;
     this._noProgressMs = 0;
+    // Latched by _driveTo while backing out of a heading it cannot drive out of.
+    this._reversing = false;
+    this._reverseMs = 0;
   }
 
   /* ── the only entry point ─────────────────────────────────────────────── */
@@ -156,6 +187,9 @@ export class CrewBot {
 
   _replan() {
     this._noProgressMs = 0;
+    // Drop the reverse latch with the plan that set it, or a back-out aimed at the old
+    // target carries into the new one and drives away from it.
+    this._reversing = false;
     this.jobBagId = null;
     this.phase = this.phase === 'sort' ? 'sort' : 'return';
   }
@@ -353,15 +387,50 @@ export class CrewBot {
     return null;
   }
 
+  /**
+   * Is it time to go, and which gate first?
+   *
+   * ⚠ THE TRIGGER IS THE TRAIN'S TOTAL, NOT ONE CART'S. That one word is the difference
+   * between a train and three carts that happen to be coupled. Waiting for a SINGLE cart
+   * to reach `haulAt` means the others are still nearly empty when it does, so the tour
+   * in `_nextStopOrHome` finds nothing to do and every run serves exactly one gate — the
+   * bot coupled three carts and behaved exactly as it had with one, which is what the
+   * telemetry showed the first time this was tried: longest train 3.0, extra gates 0.0.
+   *
+   * Leaving on the total means two or three carts each go out part-full and the sixty
+   * metres is paid for once. Whichever hold shuts SOONEST is the first stop, because the
+   * tour is a queue and the aeroplane leaving first is the one worth reaching first.
+   */
   _cartToHaul(st) {
+    const live = [];
     for (const c of Object.values(st.cartsById)) {
       if (!c.bagIds.length) continue;
       const flight = st.flightsById[c.placardFlightId];
       if (!flight || flight.evaluated || !isHoldOpen(flight)) continue;
-      if (c.bagIds.length >= this.skill.haulAt) return c;
-      // Last-chance run: the hold shuts before another cartload could be filled.
-      const left = flight.times.holdClosingMs - st.simTimeMs;
-      if (this.skill.lookaheadMs && left < this.skill.lookaheadMs) return c;
+      live.push({ cart: c, flight, shutsAt: flight.times.holdClosingMs });
+    }
+    if (!live.length) return null;
+    live.sort((a, b) => a.shutsAt - b.shutsAt);
+
+    const total = live.reduce((n, r) => n + r.cart.bagIds.length, 0);
+    if (total >= this.skill.haulAt) return live[0].cart;
+
+    /*
+     * GO EARLY WHEN A TOUR IS ACTUALLY AVAILABLE. Two flights are only both loadable for
+     * a couple of short windows in a three-flight shift — AB221 and MC184 overlap for
+     * 135 s, MC184 and SK307 for 80 s, AB221 and SK307 never — so a trip that leaves on
+     * the usual threshold mostly arrives to find the other cart's hold already shut.
+     * That is what the tour counters showed: every rejection, on every seed, was "hold
+     * shut", never an empty cart. Leaving at a lower bar while the window is open is the
+     * only way the second cart is worth anything.
+     */
+    if (live.length >= 2 && total >= Math.ceil(this.skill.haulAt * 0.6)) return live[0].cart;
+
+    // Last-chance run: a hold shuts before another load could be filled. Still measured
+    // per flight, because it is that flight's deadline that forces the trip.
+    for (const r of live) {
+      const left = r.shutsAt - st.simTimeMs;
+      if (this.skill.lookaheadMs && left < this.skill.lookaheadMs) return r.cart;
     }
     return null;
   }
@@ -377,16 +446,93 @@ export class CrewBot {
     if (st.player.drivingId) {
       const v = this._tractor(st);
       const cart = st.cartsById[this.jobCartId];
-      // Straight to driving only when the train is exactly the cart we want; otherwise
-      // the hitch phase has to shed whatever else is on the drawbar first.
-      const clean = cart && cart.hitchedToId && v && v.nextCartId === cart.id;
-      this.phase = clean ? 'drive' : 'hitch';
+      // ON THE TRAIN ANYWHERE IS GOOD ENOUGH. This used to demand the job cart be the
+      // ONLY thing on the drawbar, which forced a shed before every trip — and shedding
+      // is where this bot has lost every fight it has ever had with itself. See
+      // `_hitch` for the policy that replaced it.
+      /*
+       * Go through `hitch` whenever there is ANYTHING left to couple, not only when the
+       * job cart itself is loose. Sending a coupled job straight to `drive` skipped the
+       * step that picks up the SECOND loaded cart — so the train left with one live cart
+       * and whatever dead ones it was already dragging, and the gate-to-gate tour found
+       * nothing to do. Measured, a second gate was genuinely available 4.7 times out of 8
+       * and the bot drove past it every time.
+       */
+      /*
+       * ⚠ DO NOT DIVERT HERE TO PICK UP A SECOND CART. It was tried, it works, and it is
+       * measurably worse — see COUPLE_DETOUR_M for the numbers. The train still tours the
+       * gates when a coupled cart happens to be live (`_nextStopOrHome`), which is free;
+       * what does not pay is GOING to fetch one.
+       */
+      const onTrain = cart && v && this._trainIndex(st, v, cart.id) >= 0;
+      this.phase = onTrain ? 'drive' : 'hitch';
       return;
     }
 
     if (this._walkTo(g, input, v.x, v.y, 1.5)) {
       if (st.player.targetVehicleId === v.id) this._press(input, KEY.interact);
     }
+  }
+
+  /** Every cart on the train that still has somewhere to take its load, soonest first. */
+  _liveStops(st, v) {
+    const out = [];
+    for (const id of trainOf(st, v)) {
+      const c = st.cartsById[id];
+      if (!c || !c.bagIds.length) continue;
+      const f = st.flightsById[c.placardFlightId];
+      if (!f || f.evaluated || !isHoldOpen(f)) continue;
+      const a = st.aircraftById[f.aircraftId];
+      if (!a || !a.present || !a.holdOpen) continue;
+      out.push({ cart: c, flight: f, shutsAt: f.times.holdClosingMs });
+    }
+    out.sort((a, b) => a.shutsAt - b.shutsAt);
+    return out;
+  }
+
+  /** The gate to head for first: the hold that shuts soonest. */
+  _firstStop(st, v) { return this._liveStops(st, v)[0] || null; }
+
+  /**
+   * A loaded cart worth taking that is NOT yet on the drawbar. Bounded by the cart count,
+   * so a cart that cannot be coupled for some reason cannot spin this forever.
+   */
+  _uncoupledLiveCart(st, v) {
+    if (trainOf(st, v).length >= Object.keys(st.cartsById).length) return null;
+    let best = null, bestShuts = Infinity;
+    for (const c of Object.values(st.cartsById)) {
+      if (c.hitchedToId || !c.bagIds.length) continue;
+      const f = st.flightsById[c.placardFlightId];
+      if (!f || f.evaluated || !isHoldOpen(f)) continue;
+      const a = st.aircraftById[f.aircraftId];
+      if (!a || !a.present || !a.holdOpen) continue;
+      if (f.times.holdClosingMs < bestShuts) { best = c; bestShuts = f.times.holdClosingMs; }
+    }
+    return best;
+  }
+
+  /**
+   * Where `cartId` sits in the train behind `v`, or -1 if it is not on it.
+   *
+   * The whole multi-cart policy hangs off this: "is the cart I want already coupled?"
+   * used to be `v.nextCartId === cart.id`, which is only ever true for the first one.
+   */
+  _trainIndex(st, v, cartId) {
+    return trainOf(st, v).indexOf(cartId);
+  }
+
+  /**
+   * How far behind the TRACTOR CENTRE the cart at index `i` rides, in metres.
+   *
+   * A cart's tow point is `lengthM/2 + 0.15` behind its centre and the next cart's centre
+   * is `linkM` behind that, so the carts sit 3.10 m apart; the first is `towOffsetM +
+   * linkM` = 3.05 m behind the tractor. Parking is the only place this matters, and it
+   * matters a lot: aim the tractor at the hold door with a three-cart train and the cart
+   * that actually stops on the door is the one nine metres back.
+   */
+  _trailDistance(i) {
+    const C = CONFIG.cart;
+    return CONFIG.tractor.towOffsetM + C.linkM + i * (C.lengthM / 2 + 0.15 + C.linkM);
   }
 
   _tractor(st) {
@@ -412,44 +558,73 @@ export class CrewBot {
     const v = st.vehiclesById[st.player.drivingId];
     const cart = st.cartsById[this.jobCartId];
     if (!v) { this.phase = 'sort'; return; }
-    if (!cart || cart.hitchedToId) { this._hitchMs = 0; this.phase = 'drive'; return; }
-
     /*
-     * DROP THE DEAD CART FIRST. `hitchCandidate` measures from the TAIL of the train, not
-     * from the tractor, so a tractor already towing something can never bring a second
-     * cart into range without ramming the first. The bot spent the last four minutes of
-     * every shift trying, while cart_3 sat in the sort room with ten SK307 bags in it and
-     * that flight took zero — which is why SK307 read 0% while the other two read 85%.
+     * COUPLE EVERY LIVE LOADED CART BEFORE LEAVING, not just the one this trip is for.
      *
-     * Dropped on the move, because a cart released while stationary is inside hitch range
-     * and gets picked straight back up.
+     * A cart only ever became coupled when it was the job, so the train filled up with
+     * DEAD carts — the ones whose flight had already departed, still holding its missed
+     * bags — while the live second cart sat on its bay. Measured, every single cart the
+     * gate-to-gate tour rejected was rejected as `evaluated`: 6.7 of 6.7, on every seed.
+     * The tour was looking at the wreckage of the last flight instead of the load for the
+     * next one, and reported "no second gate to serve" while a full cart stood at the
+     * belt. Couple them at the belt, where they already are, and the tour has something
+     * to find.
      */
-    if (v.nextCartId && v.nextCartId !== this.jobCartId) {
-      const clear = { x: SORT_SPOT.x - 5, y: SORT_SPOT.y + 8 };
-      const near = Math.hypot(v.x - clear.x, v.y - clear.y) < 7;
-      this._driveTo(g, input, clear.x, clear.y, 1.5);
-      if (near && Math.abs(v.speed) > 1) {
-        this._press(input, KEY.grab);
-        this.stats.cartsDropped = (this.stats.cartsDropped || 0) + 1;
-      }
+    if (!cart || cart.hitchedToId) {
+      this._hitchMs = 0;
+      const more = this._uncoupledLiveCart(st, v);
+      if (more) { this.jobCartId = more.id; this.jobFlightId = more.placardFlightId; return; }
+      const first = this._firstStop(st, v);
+      if (first) { this.jobCartId = first.cart.id; this.jobFlightId = first.flight.id; }
+      this.phase = 'drive';
       return;
     }
 
-    // In range already? Take it. E while driving hitches whatever the game offers.
-    const tow = { x: v.x - Math.cos(v.rot) * CONFIG.tractor.towOffsetM,
-                  y: v.y - Math.sin(v.rot) * CONFIG.tractor.towOffsetM };
-    if (Math.hypot(cart.x - tow.x, cart.y - tow.y) < CONFIG.cart.hitchRangeM * 0.85) {
+    /*
+     * ⚠ THE TRAIN IS PERMANENT. NOTHING IS EVER SHED.
+     *
+     * This is the cart-management design the README asked for, and every previous attempt
+     * failed on the same rock: a cart RELEASED WHILE STATIONARY sits inside hitch range
+     * and the next E picks it straight back up. Working around that produced 591
+     * shed-and-recouple cycles in one shift; requiring movement to drop produced a
+     * three-cart train parked at 0.07 m/s that could never satisfy the condition and
+     * deadlocked with SK307 losing all twelve bags.
+     *
+     * So stop shedding. Couple each flight's cart once, keep all of them on the drawbar
+     * for the whole shift, fill them where they stand at the belt, and tour the gates —
+     * unloading whichever cart the current gate wants. `hitchCandidate` measures from the
+     * TAIL of the train, so appending is exactly as easy as taking the first one: drive
+     * forward until the loose cart is behind the last one.
+     *
+     * It is also simply better play, which is the point. One sixty-metre run serves two
+     * flights instead of one, and the run count stops being the bottleneck the telemetry
+     * kept blaming.
+     */
+
+    /*
+     * In range already? Take it. E while driving hitches whatever the game offers.
+     *
+     * MEASURED FROM THE TAIL, not from the tractor — `hitchPointOf` is the game's own
+     * answer to "where does a new cart couple?", and with a train behind you that is
+     * metres from where the tractor is. Measuring from the tractor is why every previous
+     * attempt at a second cart concluded it was out of range and drove off again.
+     */
+    const hp = hitchPointOf(st, v);
+    if (Math.hypot(cart.x - hp.x, cart.y - hp.y) < CONFIG.cart.hitchRangeM * 0.85) {
       this._press(input, KEY.grab);
       this.stats.hauls++; this._hitchMs = 0; this._hitchAim = null;
+      this.stats.trainLength = Math.max(this.stats.trainLength || 0,
+                                        trainOf(st, v).length + 1);
       // An empty cart is worth nothing at the gate. Tow it to the belt and fill it there.
       this.phase = cart.bagIds.length ? 'drive' : 'return';
       return;
     }
 
     // The line to drive along, captured ONCE on arrival so the target does not swing
-    // round the cart as we close on it.
+    // round the cart as we close on it. Aimed from the HITCH POINT for the same reason
+    // the range test is.
     if (!this._hitchAim) {
-      const dx = cart.x - v.x, dy = cart.y - v.y;
+      const dx = cart.x - hp.x, dy = cart.y - hp.y;
       const d = Math.hypot(dx, dy) || 1;
       this._hitchAim = { x: dx / d, y: dy / d };
     }
@@ -465,7 +640,7 @@ export class CrewBot {
       if ((this.stats.hitchRetries || 0) > 6) { this.phase = 'return'; return; }
     }
 
-    this._driveTo(g, input, past.x, past.y, 0.9);
+    this._driveTo(g, input, past.x, past.y, 0.9, true);   // backing onto the drawbar
   }
 
   /* ── phase: drive to the gate ─────────────────────────────────────────── */
@@ -483,14 +658,23 @@ export class CrewBot {
     // derived from the aircraft's position, and the aircraft leaves.
     if (!isHoldOpen(flight) || !ac.holdOpen || !ac.present) { this.phase = 'return'; return; }
 
-    // PARK THE CART IN THE HOLD VOLUME. Coming in from the road the tractor faces east,
-    // so the cart trails about three metres west of it — put the tractor east of the
-    // door and the cart lands on the door. Standing at the cart then puts the crew both
-    // at the cart and inside the hold, which since the M6 interaction fix means E takes
-    // from the cart and E-with-a-bag loads the aircraft, with no walking between.
-    // Parking well is the skill; this is what the stand geometry was always asking for.
+    /*
+     * PARK THE CART IN THE HOLD VOLUME. Coming in from the road the tractor faces east,
+     * so the cart trails west of it — put the tractor east of the door and the cart lands
+     * on the door. Standing at the cart then puts the crew both at the cart and inside
+     * the hold, which since the M6 interaction fix means E takes from the cart and
+     * E-with-a-bag loads the aircraft, with no walking between. Parking well is the
+     * skill; this is what the stand geometry was always asking for.
+     *
+     * PARK THE RIGHT CART ON THE DOOR. With one cart the tractor stops 3 m east and the
+     * cart lands on it; with a train, the cart this gate wants may be second or third,
+     * six or nine metres further back. `_trailDistance` is that offset, so the tractor
+     * parks further east and the correct cart stops where the single cart used to.
+     */
+    const v = st.vehiclesById[st.player.drivingId];
     const z = aircraftHoldZone(ac);
-    const target = { x: z.x + 3.0, y: z.y + 1.1 };
+    const idx = v ? Math.max(0, this._trainIndex(st, v, this.jobCartId)) : 0;
+    const target = { x: z.x + this._trailDistance(idx), y: z.y + 1.1 };
     if (this._driveTo(g, input, target.x, target.y, 1.6)) {
       this._press(input, KEY.interact);          // get out
       this.unloadStep = 'take';
@@ -512,8 +696,8 @@ export class CrewBot {
 
     // The hold has shut with bags still aboard the cart. Nothing to be done about it —
     // that is the game working, and it is exactly the number M6 wants to know.
-    if (!ac.holdOpen) { this.phase = 'return'; return; }
-    if (!cart.bagIds.length && !p.carryingBagId) { this.phase = 'return'; return; }
+    if (!ac.holdOpen) { this._nextStopOrHome(st); return; }
+    if (!cart.bagIds.length && !p.carryingBagId) { this._nextStopOrHome(st); return; }
 
     const z = aircraftHoldZone(ac);
 
@@ -535,6 +719,75 @@ export class CrewBot {
     }
 
     if (there && p.targetCartId === cart.id) this._press(input, KEY.grab);
+  }
+
+  /**
+   * TOUR THE GATES. Finished with one cart — is another cart ON THIS TRAIN carrying bags
+   * for a hold that is still open? If so, drive there next instead of going home.
+   *
+   * This is the whole return on a permanent train. One sixty-metre run out and back used
+   * to serve exactly one flight; now it serves as many as are coupled and loaded, and the
+   * empty legs are paid for once. It costs nothing when the train has one cart, which is
+   * what it has for the first minute of every shift.
+   *
+   * Ordered by how soon each hold shuts, because the tour is a queue and the aircraft
+   * leaving first is the one worth reaching first.
+   */
+  _nextStopOrHome(st) {
+    const v = this._tractor(st);
+    if (!v) { this.phase = 'return'; return; }
+
+    /* Counted, not guessed. The first version of this tour reported zero extra gates on
+     * every seed and there are four different reasons that could happen; a tally at each
+     * gate says which, and turned "the tour does not work" into one line to change. */
+    const S = this.stats;
+    S.tourChecks = (S.tourChecks || 0) + 1;
+    const train = trainOf(st, v);
+    S.tourTrainSum = (S.tourTrainSum || 0) + train.length;
+
+    /*
+     * THE OPPORTUNITY, counted regardless of what is coupled. If this is zero then the
+     * SHIFT has no second gate to serve at this moment and no cart policy could have
+     * found one — which is a fact about the timetable, not about the bot, and it is the
+     * only honest way to answer the README's multi-cart question.
+     */
+    for (const c of Object.values(st.cartsById)) {
+      if (c.id === this.jobCartId || !c.bagIds.length) continue;
+      const f = st.flightsById[c.placardFlightId];
+      if (!f || f.evaluated || !isHoldOpen(f)) continue;
+      S.tourOpportunity = (S.tourOpportunity || 0) + 1;
+    }
+
+    const stops = [];
+    for (const id of train) {
+      if (id === this.jobCartId) continue;
+      S.tourOthers = (S.tourOthers || 0) + 1;
+      const c = st.cartsById[id];
+      if (!c || !c.bagIds.length) { S.tourEmptyCart = (S.tourEmptyCart || 0) + 1; continue; }
+      const f = st.flightsById[c.placardFlightId];
+      if (!f || f.evaluated) { S.tourEvaluated = (S.tourEvaluated || 0) + 1; continue; }
+      if (!isHoldOpen(f)) {
+        // BEFORE the hold opens and AFTER it shuts are both "not open", and they mean
+        // opposite things: too early is a schedule that does not overlap, too late is a
+        // crew that did not get there. Counted apart, because the answer to the README's
+        // multi-cart question depends on which one it is.
+        if (st.simTimeMs < f.times.loadingMs) S.tourTooEarly = (S.tourTooEarly || 0) + 1;
+        else S.tourTooLate = (S.tourTooLate || 0) + 1;
+        S.tourShut = (S.tourShut || 0) + 1;
+        continue;
+      }
+      const a = st.aircraftById[f.aircraftId];
+      if (!a || !a.present || !a.holdOpen) { S.tourNoAircraft = (S.tourNoAircraft || 0) + 1; continue; }
+      stops.push({ cart: c, flight: f, shutsAt: f.times.holdClosingMs });
+    }
+    if (!stops.length) { this.phase = 'return'; return; }
+
+    stops.sort((a, b) => a.shutsAt - b.shutsAt);
+    const next = stops[0];
+    this.jobCartId = next.cart.id;
+    this.jobFlightId = next.flight.id;
+    this.stats.tourStops = (this.stats.tourStops || 0) + 1;
+    this.phase = 'toTractor';     // climb back in, then drive; the train stays coupled
   }
 
   /** A point beside `want` on the side away from `other`, so `findCart` picks `want`. */
@@ -603,8 +856,17 @@ export class CrewBot {
     return false;
   }
 
-  /** Drive one frame toward a world point. Same waypointing, plus throttle and steering. */
-  _driveTo(g, input, tx, ty, withinM) {
+  /**
+   * Drive one frame toward a world point. Same waypointing, plus throttle and steering.
+   *
+   * @param {boolean} backOnto  what a REVERSE is for here. False (the default) means
+   *   TRAVELLING: back up only far enough to get the nose round, then drive off forwards.
+   *   True means placing the tow point ON something — hitching — where aiming the
+   *   tractor's REAR at the target is the entire objective. Steering the same way for
+   *   both is what made this bot reverse fifty metres across a ramp; steering the travel
+   *   way for both breaks the hitch instead. They are different manoeuvres.
+   */
+  _driveTo(g, input, tx, ty, withinM, backOnto = false) {
     const st = g.state;
     const v = st.vehiclesById[st.player.drivingId];
     if (!v) return true;
@@ -616,17 +878,49 @@ export class CrewBot {
     while (err > Math.PI) err -= Math.PI * 2;
     while (err < -Math.PI) err += Math.PI * 2;
 
-    // YAW RATE SCALES WITH SPEED, so a stationary tractor cannot turn at all, and
-    // steering without throttle is a deadlock. It is the one the first version of this
-    // bot sat in for five minutes of every shift, 84 m from where it wanted to be.
-    // Facing away means backing out, which is what a person does too.
-    if (Math.abs(err) > 2.0) {
-      let rerr = err > 0 ? err - Math.PI : err + Math.PI;
-      if (rerr > 0.05) input._debugPress(KEY.left);       // inverted in reverse
-      else if (rerr < -0.05) input._debugPress(KEY.right);
+    /*
+     * YAW RATE SCALES WITH SPEED, so a stationary tractor cannot turn at all, and
+     * steering without throttle is a deadlock. It is the one the first version of this
+     * bot sat in for five minutes of every shift, 84 m from where it wanted to be.
+     * Facing away means backing out, which is what a person does too.
+     *
+     * ⚠ REVERSING IS A MANOEUVRE, NOT A WAY TO TRAVEL. Measured on fifty-two metres of
+     * empty ramp (`tools\_route.js`), this bot held the throttle 31% of the time and
+     * reverse or brake 69%, with a mean SIGNED speed of 0.03 m/s — travelling backwards
+     * almost exactly as far as forwards, at the 3 m/s reverse cap, against a tractor that
+     * does 7.00 m/s with the throttle simply held down. Every per-trip cost it has ever
+     * reported was about double the real one.
+     *
+     * The cause: this branch used to steer on the error for the REAR direction, so a
+     * target directly behind produced ZERO steering and a dead-straight reverse for
+     * however far away it was. Reversing is for getting the NOSE round; yaw inverts in
+     * reverse (see `stepVehicle`, `dir` is -1), so the key that turns the nose toward the
+     * target is the opposite of the one that would do it going forward. Backing ONTO a
+     * drawbar still wants the old behaviour, and says so at the call site.
+     *
+     * Latched, with separate enter and exit angles, so it cannot chatter against its own
+     * threshold; and capped by DURATION rather than by distance, because a cap on
+     * distance also bans it in the sort room where the turning circle does not fit.
+     */
+    const REVERSE_ENTER = 2.0, REVERSE_LEAVE = 0.9, REVERSE_MAX_MS = 2500;
+    const facingAway = this._reversing ? Math.abs(err) > REVERSE_LEAVE
+                                       : Math.abs(err) > REVERSE_ENTER;
+    if (facingAway && (backOnto || (this._reverseMs || 0) < REVERSE_MAX_MS)) {
+      this._reversing = true;
+      this._reverseMs = (this._reverseMs || 0) + CONFIG.sim.stepMs;
+      if (backOnto) {
+        const rerr = err > 0 ? err - Math.PI : err + Math.PI;   // aim the TOW POINT at it
+        if (rerr > 0.05) input._debugPress(KEY.left);
+        else if (rerr < -0.05) input._debugPress(KEY.right);
+      } else if (err > 0.05) input._debugPress(KEY.left);       // turn the NOSE toward it
+      else if (err < -0.05) input._debugPress(KEY.right);
       input._debugPress(KEY.down);
       return false;
     }
+    this._reversing = false;
+    // The budget refills while driving forward, so a genuine multi-point turn still
+    // works — back, pull forward, back again. What it cannot do is reverse across a ramp.
+    this._reverseMs = Math.max(0, (this._reverseMs || 0) - CONFIG.sim.stepMs * 2);
     if (err > 0.05) input._debugPress(KEY.right);
     else if (err < -0.05) input._debugPress(KEY.left);
     // Always under power. A train cornering at full tilt sheds its load, which is the M2

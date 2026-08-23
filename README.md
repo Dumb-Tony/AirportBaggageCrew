@@ -14,25 +14,34 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1317 assertions green across ten suites.**
-Three flights, forty-two bags, eleven and a half minutes. Bags arrive on a conveyor, get
+tests themselves. 1321 assertions green across ten suites.**
+Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
 with a report telling you exactly what you managed, and a button to try again.
 
-A competent crew now clears four fifths of the shift and finishes in credit; a careless
-one goes backwards. Every number behind that was measured by a bot playing through the
+A competent crew clears **85%** of the shift and finishes on +3350; a careless one clears
+48% and goes backwards. Every number behind that was measured by a bot playing through the
 real keyboard path rather than guessed.
 
 The shift **used to be thirty-four bags**, which broke the GDD's own stated range of
-40–60. The balance pass that cut it had also stretched every flight window by 45% and
-never put the bags back, and the telemetry said so plainly for months without anyone
-reading it that way: the crew stood **idle for 284 seconds of a 692-second shift**, and
-the belt never queued more than six. Forty-two is measured better on both counts that
-matter — a first-timer goes from 34% to 54%, a competent crew from +1783 points to +2183
-— and it is the last count that still leaves zero dead ends. Forty-eight scores an
-average crew higher and is out anyway, because it makes bags unreachable and that is a
-GDD §29 rule rather than a preference.
+40–60, and it is fifty-one now — seventeen per flight, inside §20.4's range as well. It
+took two passes to get there, and the second one is the interesting half.
+
+The first pass read the telemetry: the crew stood **idle for 284 seconds of a 692-second
+shift** and the belt never queued past six, so there was obviously room. It swept the
+counts, picked 42, and rejected 48 for making bags unreachable.
+
+Then it turned out the bot **could not drive**. Its reverse manoeuvre steered to aim the
+tractor's *rear* at wherever it was going, so a target directly behind produced no
+steering at all and it reversed in a dead straight line — it was driving half of every
+haul home backwards at the 3 m/s reverse cap, against a tractor that does 7.00 m/s with
+the throttle simply held down. Every trip cost roughly double what it should have, which
+means **the whole sweep had been measured on an instrument that was wrong**, and both of
+its conclusions were artefacts. Re-swept with a bot that drives, 51 wins outright: the
+best score for a competent crew, zero dead ends, and a careless crew back in debt — which
+matters, because at 42 bags a careless crew started finishing in *credit* and the suite
+went red on a design claim it encodes. A game anybody can finish has no pressure.
 
 ![The shift report at the end of a played shift](docs/m6-report.png)
 
@@ -181,7 +190,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1317 assertions also pass under Edge:
+All 1321 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -273,7 +282,7 @@ no program can stand in for a person:
 - pressure comes from overlapping simple work, not confusing controls
 
 The closest a test gets is section D, which plays whole shifts with a bot driving the
-real input path. It shows a competent crew clearing 80% and finishing in credit, and a
+real input path. It shows a competent crew clearing 85% and finishing in credit, and a
 careless one going backwards — but it cannot tell you whether the game *teaches* that.
 
 ## What the suites measure
@@ -321,19 +330,19 @@ through the real input path, three seeds each:
 
 | | |
 |---|---|
-| A competent crew | 80% of bags delivered, +2183 points (mean of 3 seeds) |
-| A careless one | 54%, −700 points (mean of 3 seeds) |
+| A competent crew | 85% of bags delivered, +3350 points (mean of 3 seeds) |
+| A careless one | 48%, −1583 points (mean of 3 seeds) |
 | Before the M6 balance pass | 32% and −4000 points, on every seed, at every skill |
-| The authored shift | 42 bags across 3 flights (14 each), 11:32 |
-| Time to first bag aboard | 172 s |
-| Distance per shift | 657 m walked, 1029 m driven |
+| The authored shift | 51 bags across 3 flights (17 each), 11:32 |
+| Time to first bag aboard | 140 s |
+| Distance per shift | 896 m walked, 1580 m driven |
 | 124 bags and three loaded carts | 0.079 ms per step — 210x frame-budget headroom |
 | Bags stranded out of reach | 0 |
-| Queue depth | peaks at 10 bags waiting, mean 2.3 |
+| Queue depth | peaks at 11 bags waiting, mean 3.4 |
 | Where missed bags end up | 100% still sitting in a cart |
 | Fuzzing | 21 shifts, 221 min simulated, 0 errors, 0 invariant violations |
-| ⚠ Tractor top speed, throttle held | **7.00 m/s** — what the vehicle does |
-| ⚠ …what the bot manages over 52 m of empty ramp | **4.16 m/s**, reversing 69% of the way |
+| Tractor top speed, throttle held | **7.00 m/s** — what the vehicle does |
+| …what the bot manages over 52 m of empty ramp | **6.76 m/s**, throttle held 97% of the way |
 
 That last pair is the most useful thing on this page, and it is a warning rather than a
 result. `tools\_route.js` samples the tractor every simulation step and bins it by
@@ -399,26 +408,42 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   reported OPEN by the m6 suite rather than assumed green — see *Phase 1 acceptance*
   above. Everything a program can check does pass; whether the game *teaches* what it
   needs to is the one thing still genuinely unknown, and it is the top of the list.
-- **The balance is one bot's opinion.** 80% for a competent crew is measured, but it is
-  measured against a policy I wrote: park the train on the hold door, fill one cart at the
-  belt, one flight at a time, **and tow one cart at a time**. That last one matters most.
-  The game has supported trains of up to sixteen carts since Milestone 2 — the m2 suite
-  drives a three-cart one to the gate — and the bot has never used them. So the telemetry's
-  "the bottleneck is trips to the gate" is a statement about the **policy**, not about the
-  game: a human who couples two carts pays the sixty-metre run once instead of twice.
+- ✅ **The multi-cart question is answered — and the answer is no.** This entry used to say
+  the bot had never used a train, that the "bottleneck is trips to the gate" was therefore
+  a statement about the policy rather than the game, and that **the number to beat is
+  80%**. Both halves are now settled.
 
-  I tried teaching the bot to couple up, and reverted it. Three policies, each worse than
-  the single-cart baseline. Requiring two full carts at once never triggers, because the
-  crew fills whichever cart the next bag off the belt belongs to and one is always well
-  ahead of the other. Lowering the bar for the second cart made it shed and re-couple 591
-  times in a shift, because a cart dropped while stationary sits inside hitch range and
-  gets picked straight back up. Never shedding at all leaves the first cart coupled
-  forever and drops the run count to one. Multi-cart hauling needs a genuinely different
-  cart-management design **in the bot**, which is instrument work rather than game work.
-  **The number to beat is 80%.**
-- **Spill tuning is still provisional.** A full-lock circle at top speed empties a cart.
-  The bot sheds about four bags a shift and takes 23 corners above the safe speed, so it
-  is not free — but nobody has decided whether that is the right price.
+  The cart management was rebuilt: the train is **permanent**, up to three carts, and
+  nothing is ever shed — which is what the three earlier attempts kept failing on, because
+  a cart released while stationary sits inside hitch range and is picked straight back up.
+  The train also tours the gates, serving a second hold without driving home.
+
+  It works, and it costs more than it saves:
+
+  | policy | gates per round trip | delivered |
+  |---|---|---|
+  | fetch any live cart | 1.56 | 61% |
+  | fetch one within 6 m | 1.33 | 68% |
+  | **never fetch (shipped)** | **1.00** | **85%** |
+
+  Coupling is a manoeuvre, and a trip that starts with one starts later: the belt queue
+  went from 10 bags to 14 while the crew fetched a cart. The shared sixty metres is real
+  and it is smaller than the delay. Touring stays switched on because it is free when a
+  coupled cart happens to be live — it simply almost never is, and the counters say why:
+  at a gate, **6.7 of 6.7 other carts on the train belong to flights that have already
+  departed**. Three sequential flights do not give you two open holds and two loaded carts
+  at the same moment often enough to matter.
+
+  The number to beat was 80%. It is **85%** now, and that came from teaching the bot to
+  drive rather than from teaching it to couple.
+- **Spill tuning is still provisional, and it just got a lot more interesting.** A
+  full-lock circle at top speed empties a cart. The bot sheds about five bags a shift and
+  now takes **200 corners above the safe speed — up from 23**, because until the driving
+  was fixed it spent half of every haul reversing at 3 m/s and simply never went fast
+  enough to load a cart laterally. So the spill model has only just started being
+  exercised at the speeds the tractor can actually reach, and nobody has decided whether
+  five bags a shift is the right price. This is the first number on this page that the
+  driving fix made *worse*, and it is worth a proper look.
 - **Audio is synthesised, not designed.** Every cue is an oscillator or filtered noise.
   It is legible and it escalates, but it is a placeholder for a sound pass, and the
   mixing between the three beds and the one-shots has not been balanced against anything.
