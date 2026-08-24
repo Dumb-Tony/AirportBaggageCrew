@@ -14,7 +14,7 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1330 assertions green across ten suites.**
+tests themselves. 1337 assertions green across ten suites.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -45,7 +45,7 @@ went red on a design claim it encodes. A game anybody can finish has no pressure
 
 ![The shift report at the end of a played shift](docs/m6-report.png)
 
-It has sound, and it teaches itself. A seven-step rail walks you through the loop
+It has sound, and it teaches itself. An eight-step rail walks you through the loop
 **without ever stopping the clock** — the flights are already running while you learn to
 pick a bag up, because a tutorial that paused the airport would be teaching a lie about
 the only thing the game is about. Settings cover volumes, reduced motion, text size and a
@@ -190,7 +190,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1330 assertions also pass under Edge:
+All 1337 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -363,7 +363,7 @@ Milestone 5 — onboarding and juice:
 | | |
 |---|---|
 | A 200 s shift, run with live audio and with none | `describe()` snapshots identical to the byte |
-| The rail | 7 steps · 11 s on one step before the hint appears |
+| The rail | 8 steps · 11 s on one step before the hint appears |
 | Schedule-pressure assist | multiplies the authored shift: Relaxed 1.15×, Unhurried 1.35× |
 | 600 live frames with audio wired in | 0.020 ms per frame against a 16.7 ms budget |
 
@@ -381,7 +381,7 @@ src/
   systems/        containment · baggageFlow · hitching · interaction · physics
                   flightSchedule · announcements · scoring · save
                   audio.js       every sound, inert until a user gesture arms it
-                  onboarding.js  the seven-step rail, advisory over a live shift
+                  onboarding.js  the eight-step rail, advisory over a live shift
   render/         camera · renderer · sprites · textures · fx (all Canvas 2D)
   ui/             hud.js · scannerCard.js · flightBoard.js · shiftReport.js
                   settings.js    volumes · reduced motion · text size · assist

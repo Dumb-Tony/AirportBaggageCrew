@@ -186,9 +186,47 @@ function sectionA() {
     GUIDE_STEPS.every((s) => s.text && s.hint && typeof s.done === 'function'));
 
   // The rail teaches the loop, so the loop had better be in it.
-  for (const want of ['grab', 'scan', 'cart', 'drive', 'load']) {
+  for (const want of ['grab', 'scan', 'placard', 'cart', 'drive', 'hitch', 'load']) {
     ok(`A4 the rail covers "${want}"`, ids.has(want));
   }
+
+  /*
+   * ⚠ EVERY KEY A SHIFT CANNOT BE FINISHED WITHOUT HAS TO BE NAMED SOMEWHERE IN THE RAIL.
+   *
+   * This is the closest a program can get to GDD §29's "a first-timer completes the loop
+   * unaided", which is one of the five criteria the suite reports OPEN because it needs
+   * real players. It cannot check that the teaching WORKS — but it can check that nothing
+   * the player must do is left untaught, and that is a real property with a real failure.
+   *
+   * It has one already: the rail went straight from reading a bag's tag to putting it in
+   * a cart and never mentioned F on a cart at all, so a player could complete all seven
+   * steps without discovering that carts can be LABELLED — the mechanic that decides
+   * whether a bag ends up on the right aeroplane, and the difference between +100 and
+   * −250. It was invisible because `loadIntoCart` does not check the placard, so the
+   * untaught path works and merely scores badly.
+   */
+  const railText = GUIDE_STEPS.map((s) => `${s.text} ${s.hint}`).join(' ').toUpperCase();
+  const MUST_TEACH = [
+    { key: 'E', why: 'pick a bag up, load a cart, load a hold, hitch a cart' },
+    { key: 'Q', why: 'read a tag' },
+    { key: 'F', why: 'get into the tractor, and label a cart' },
+    { key: 'WASD', why: 'move on foot and drive' },
+  ];
+  for (const m of MUST_TEACH) {
+    const named = m.key === 'WASD'
+      ? /WASD|W A S D/.test(railText)
+      : new RegExp(`\\b${m.key}\\b`).test(railText);
+    ok(`A4b the rail names "${m.key}" — needed to ${m.why}`, named);
+  }
+
+  // And the placard specifically, by its EFFECT rather than by its step id, so renaming
+  // the step cannot quietly drop the lesson.
+  ok('A4c one step is satisfied by labelling a cart, not merely by filling one',
+     GUIDE_STEPS.some((s) => {
+       const blank = { cartsById: { c: { bagIds: [], placardFlightId: 'flight_AB221' } } };
+       const filled = { cartsById: { c: { bagIds: ['b'], placardFlightId: null } } };
+       try { return s.done(blank) && !s.done(filled); } catch (e) { void e; return false; }
+     }));
 
   const g = newGame();
   g.startShift();
@@ -217,12 +255,15 @@ function sectionB() {
   const bag = Object.values(st.bagsById)[0] || null;
   const cart = Object.values(st.cartsById)[0];
   st.player.carryingBagId = bag ? bag.id : 'x';
+  // A LABELLED cart, not merely a full one: the rail teaches the placard before the load,
+  // so a fixture that fills a blank cart satisfies "cart" and stalls on "placard".
+  cart.placardFlightId = Object.keys(st.flightsById)[0];
   cart.bagIds.push('fake');
   st.player.drivingId = Object.keys(st.vehiclesById)[0];
   cart.hitchedToId = st.player.drivingId;
 
   const view = stepGuide(g.guide, st);
-  ok('B1 six satisfied steps collapse in one call', view && view.id === 'load',
+  ok('B1 every satisfied step collapses in one call', view && view.id === 'load',
     JSON.stringify(view));
   eq('B2 the counter jumped rather than crawled', view.n, GUIDE_STEPS.length);
 

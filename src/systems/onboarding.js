@@ -36,9 +36,34 @@ export const GUIDE_STEPS = [
     done: (s) => s.stats.scans > 0,
   },
   {
+    /*
+     * ⚠ THE RAIL USED TO SKIP STRAIGHT FROM THE TAG TO THE CART, and a player could
+     * finish the whole tutorial without ever learning that carts can be LABELLED.
+     *
+     * Carts start blank, and `loadIntoCart` does not check the placard, so putting a bag
+     * in an unmarked cart works — which is why the omission was invisible. But an unmarked
+     * cart is just a box: the placard is what makes it "the ATL cart", it is how the
+     * scanner can tell you a bag is in the wrong one, and loading a bag onto the wrong
+     * aircraft is −250. GDD §7.3 says sorting is "physical placement onto MARKED carts",
+     * and the rail was teaching the placement without the marking.
+     *
+     * It sits here because the order is the lesson: read the tag, label a cart to match
+     * it, then put the bag in. F placards the nearest cart whether or not your hands are
+     * full, so the player can do this still holding the bag from the step before.
+     */
+    id: 'placard',
+    text: 'Label a cart for that flight — stand at one and press F.',
+    hint: 'F cycles the placard through the flights and back to blank. Match the tag.',
+    done: (s) => Object.values(s.cartsById).some((c) => !!c.placardFlightId),
+  },
+  {
     id: 'cart',
-    text: 'Put it in the cart on the matching gate bay — walk over and press E.',
-    hint: 'GATE 1 and GATE 2 are painted on the floor. The tag says which one.',
+    text: 'Now put the bag in the cart you just labelled — walk over and press E.',
+    // Was "GATE 1 and GATE 2 are painted on the floor" — which points at the painted
+    // staging pads, and those do almost nothing: their only mechanical effect is that
+    // the scanner will comment on a bag lying loose on one. The cart's PLACARD is the
+    // thing that matters, so the hint names that instead.
+    hint: 'The placard on the cart and the tag on the bag should read the same flight.',
     done: (s) => Object.values(s.cartsById).some((c) => c.bagIds.length > 0),
   },
   {
@@ -49,8 +74,19 @@ export const GUIDE_STEPS = [
   },
   {
     id: 'hitch',
-    text: 'Back up to a cart and press E to hitch it.',
-    hint: 'The hitch is behind the tractor — reverse with S until the cart is close.',
+    /*
+     * ⚠ THIS USED TO TEACH REVERSING, WHICH IS THE HARD WAY AND IS NOT NEEDED.
+     *
+     * `hitchCandidate` measures from the tow point — 1.3 m behind the tractor — out to
+     * `hitchRangeM` of 3 m, so a cart you have simply driven PAST is already in range.
+     * The old hint said "reverse with S until the cart is close", and reverse-parking a
+     * vehicle whose yaw rate scales with speed is a disproportionately hard control
+     * problem for something the geometry never asked for: the first version of the crew
+     * bot spent 82% of every shift steering backwards in circles and hitched nothing.
+     * Teaching a first-timer the technique that defeated the bot is the wrong way round.
+     */
+    text: 'Drive past a cart so it ends up behind you, then press E to hitch it.',
+    hint: 'The hitch is behind the tractor, so drive forward past the cart — no reversing.',
     done: (s) => Object.values(s.cartsById).some((c) => c.hitchedToId),
   },
   {

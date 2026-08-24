@@ -50,7 +50,7 @@ Dev-wide catalog of what already exists and where to copy it from.
   `docs/m5-oblique.png`, `docs/m5-oblique-sortroom.png`.
 - 2026-08-20 — **M5 DONE.** Onboarding and juice. `systems/audio.js` (WebAudio, inert
   until a gesture arms it, subscribing to the same bus the effects use);
-  `systems/onboarding.js` (a seven-step rail over a completely live shift — no training
+  `systems/onboarding.js` (an eight-step rail over a completely live shift — no training
   pauses, because the airport never waits); `ui/settings.js` (volumes, reduced motion,
   text scale, guide toggle, and a schedule-pressure assist). Measured: a 200 s shift with
   live audio attached and one with none produce byte-identical `describe()` snapshots;
@@ -117,7 +117,7 @@ Dev-wide catalog of what already exists and where to copy it from.
   both found by the invariant sweep rather than by eye: `separate()` normalised a
   degenerate contact with a divisor of 1e-6 and flung a bag **181 km** out of the world,
   and separation could shove a bag through the sort-room wall where nothing could reach
-  it. **1330 assertions, ten suites, soak clean across 21 fuzzed shifts.**
+  it. **1337 assertions, ten suites, soak clean across 21 fuzzed shifts.**
 
 ## Phase 1 is done. What is actually left
 
