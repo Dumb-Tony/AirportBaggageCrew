@@ -641,6 +641,54 @@ lines.push('--- F. spillage (GDD 6.4, 10.2) ---');
      `${fast.g.state.stats.hardCorners} corners against ${fast.cart.spills} spills — ` +
      'a counter that fires on every keystroke runs to hundreds');
 
+  /*
+   * PARKED CARTS PUSH EACH OTHER APART. Two on the same square metre both answer to `E`
+   * and `findCart` hands you whichever centre is nearest, so standing between them loads
+   * the one you did not mean — the README called it the single most common way the bot
+   * lost time, and the bot carries a circling workaround for it.
+   */
+  {
+    const gs = newGame();
+    const a = gs.state.cartsById.cart_1, b = gs.state.cartsById.cart_2;
+    b.x = a.x; b.y = a.y;                       // exactly on top of one another
+    drive(gs, 90);
+    const gap = Math.hypot(b.x - a.x, b.y - a.y);
+    ok('F8a two parked carts do not stay on the same spot', gap >= CONFIG.cart.widthM - 0.01,
+       `${gap.toFixed(2)} m apart after 1.5 s, want at least ${CONFIG.cart.widthM}`);
+    ok('F8b ...and they are eased apart rather than flung',
+       gap < CONFIG.cart.widthM * 3, `${gap.toFixed(2)} m`);
+    eq('F8c separating carts never corrupts containment',
+       assertContainment(gs.state).length, 0);
+    note(`two coincident carts settle ${gap.toFixed(2)} m apart`);
+
+    /* ...and a TOWED cart is the drawbar's business. Pushing it would start a fight the
+     * constraint wins, and `updateTrain` would read the shoving as cornering and throw
+     * the load off a stationary train. */
+    const gt = newGame();
+    const v = gt.state.vehiclesById.tractor_1;
+    const towed = gt.state.cartsById.cart_1, other = gt.state.cartsById.cart_2;
+    towed.x = v.x - 2; towed.y = v.y;
+    hitch(gt.state, v, towed, gt.bus, gt.state.simTimeMs);
+    other.x = towed.x; other.y = towed.y;       // park the free one right on the towed one
+    const beforeSpills = towed.spills;
+    drive(gt, 60);
+    eq('F8d a towed cart keeps its place on the drawbar, whatever is parked on it',
+       towed.hitchedToId, v.id);
+    eq('F8e ...and nothing is shaken off it while the tractor stands still',
+       towed.spills, beforeSpills);
+    /*
+     * And the free cart is NOT shoved aside either, which is deliberate. Making a towed
+     * cart push parked ones out of its way turns a passing train into a bulldozer: it
+     * drove carts into the sort-room doorway and produced six dead ends across average
+     * and veteran where there had been none. It is also only half a collision model —
+     * the tractor itself drives straight through a parked cart — so the disruption
+     * arrives without the blocking that would explain it.
+     */
+    ok('F8f ...and a parked cart is not bulldozed by a passing train either',
+       Math.hypot(other.x - towed.x, other.y - towed.y) < 0.5,
+       `${Math.hypot(other.x - towed.x, other.y - towed.y).toFixed(2)} m — see the comment above`);
+  }
+
   /* the cooldown: a spilled bag must not be swallowed again by the cart that lost it */
   const g = newGame();
   const cart = g.state.cartsById.cart_2;

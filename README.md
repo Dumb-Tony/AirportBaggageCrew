@@ -14,7 +14,7 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1324 assertions green across ten suites.**
+tests themselves. 1330 assertions green across ten suites.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -190,7 +190,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1324 assertions also pass under Edge:
+All 1330 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -469,9 +469,17 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
 - **The sort room has a lot of empty floor** now the cart bays have moved north, and the
   bays themselves are far enough from the belt drop that sorting is 61% of the shift.
   Level layout would be the next real lever on pacing.
-- **Carts can overlap.** Two parked on the same square metre both answer to E, and the
-  nearest one wins. It is never fatal — you can step round — but it is confusing, and it
-  is the single most common way the bot lost time before it learned to circle.
+- ✅ **Parked carts no longer overlap.** Two on the same square metre both answered to `E`
+  and the nearest centre won, so standing between them loaded the one you did not mean —
+  confusing, and the single most common way the bot lost time before it learned to circle.
+  Free carts now push each other apart to a cart's width, gently, over a few frames.
+
+  **Towed carts deliberately do not push parked ones aside**, and that was tried: it turns
+  a passing train into a bulldozer, driving carts into the sort-room doorway and producing
+  six dead ends across average and veteran where there had been none. It is also only half
+  a collision model — the tractor drives straight through a parked cart — so the
+  disruption arrives without the blocking that would explain it. A cart on the drawbar is
+  the constraint's business; the complaint was about parked ones, and that is what changed.
 - **Carts are placed, not driven.** A towed cart is positioned by the drawbar constraint
   and then pushed out of any wall it lands in, rather than colliding properly. It cannot
   end up inside geometry — the suite checks that over a full run — but a cart taking a

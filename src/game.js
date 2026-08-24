@@ -36,7 +36,7 @@ import { stepInteraction } from './systems/interaction.js';
 import { countByLocation } from './systems/containment.js';
 import { createCart } from './entities/cart.js';
 import { createTractor, stepTractor } from './entities/tractor.js';
-import { updateTrain, trainOf } from './systems/hitching.js';
+import { updateTrain, trainOf, separateFreeCarts } from './systems/hitching.js';
 
 export const MODES = Object.freeze({
   TITLE: 'title',
@@ -331,6 +331,10 @@ export class Game {
       if (v.driverId) stepTractor(this.state, v, dt, input);
       updateTrain(this.state, v, dt, this.bus, simTimeMs);
     }
+    // Parked carts push each other apart BEFORE their loads are pinned, so a cart and its
+    // bags are never seen a step apart. Free carts only — a towed one belongs to the
+    // drawbar constraint above, and shoving it would be a fight the constraint wins.
+    separateFreeCarts(this.state);
     syncCartBagPositions(this.state);
 
     rebuildGrid(this.state, this.grid);

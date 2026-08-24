@@ -15,13 +15,11 @@ import { CONFIG } from '../config.js';
 import { EVENTS } from '../core/eventBus.js';
 import { cartTowPoint, cartSlotWorld, cartFillFrac } from '../entities/cart.js';
 import { tractorTowPoint } from '../entities/tractor.js';
-import { pushOutOfWalls, angleDelta } from './physics.js';
+import { pushOutOfWalls, angleDelta, separate } from './physics.js';
 import { moveBag } from './containment.js';
 
 const MAX_TRAIN = 16;   // runaway guard: a cycle must never spin forever
 
-/** Put one cart's bags back in its slots. The same rule `syncCartBagPositions` applies to
- *  every cart once a step; needed here because `hitch` moves a cart after that has run. */
 /**
  * How much stability one overload has to cost before it counts as a CORNER.
  *
@@ -36,6 +34,8 @@ const MAX_TRAIN = 16;   // runaway guard: a cycle must never spin forever
  */
 const CORNER_COUNTS_AT = 0.25;
 
+/** Put one cart's bags back in its slots. The same rule `syncCartBagPositions` applies to
+ *  every cart once a step; needed here because `hitch` moves a cart after that has run. */
 export function pinCartLoad(state, cart) {
   for (let i = 0; i < cart.bagIds.length; i++) {
     const bag = state.bagsById[cart.bagIds[i]];
@@ -256,6 +256,62 @@ export function updateTrain(state, vehicle, dtSec, bus = null, simTimeMs = 0) {
     parentPoint = cartTowPoint(cart);
     id = cart.nextCartId;
   }
+}
+
+/**
+ * Keep PARKED carts off each other.
+ *
+ * Two carts sharing a square metre both answer to `E`, and `findCart` hands you whichever
+ * centre is nearest — so standing between them loads the one you did not mean, or nothing
+ * at all if that one is full. The README carried it as a known limitation and called it
+ * "the single most common way the bot lost time"; the bot carries a whole workaround for
+ * it, circling a quarter turn every couple of seconds to find a side where the cart it
+ * wants is unambiguously nearest.
+ *
+ * ⚠ FREE CARTS ONLY. A towed cart is POSITIONED by the drawbar constraint every step
+ * (`updateTrain`), so pushing it anywhere else just starts a fight the constraint wins,
+ * and the stability model would read the shoving as cornering and throw the load off.
+ * A cart on the drawbar is the tractor's problem.
+ *
+ * Circle-on-circle at half a cart's width, which is not the true footprint and does not
+ * need to be: the goal is that two centres are never close enough to be ambiguous, not a
+ * rectangle solver. Pushed out of walls afterwards, because this positions rather than
+ * moves — the rule this file already learned twice.
+ */
+export function separateFreeCarts(state) {
+  const all = Object.values(state.cartsById);
+  const free = all.filter((c) => !c.hitchedToId);
+  if (!free.length) return 0;
+  const minDist = CONFIG.cart.widthM;
+  const radius = Math.max(CONFIG.cart.lengthM, CONFIG.cart.widthM) * 0.5;
+  let moved = 0;
+
+  // Free against free: both give way. Gentle, so they ease apart over a few frames and
+  // read as trolleys being nudged rather than as a physics demo.
+  for (let i = 0; i < free.length; i++) {
+    for (let j = i + 1; j < free.length; j++) {
+      if (separate(free[i], free[j], minDist, 0.5, 0.35)) moved++;
+    }
+  }
+
+  /*
+   * ⚠ A TOWED CART DOES NOT PUSH PARKED ONES OUT OF ITS WAY, and that was tried.
+   *
+   * Pinning the towed cart and shoving the free one aside (`separate(towed, free, d, 0)`)
+   * is a two-line change and it turns a passing train into a bulldozer: parked carts get
+   * driven into the sort-room doorway and against walls, and the crew is then stuck
+   * behind them. Measured, six dead ends across average and veteran where there had been
+   * none — the crew stranded at (32.3, 18.9) beside the door, and at (8.9, 22) in the
+   * west of the room.
+   *
+   * It is also a HALF collision model, which is the deeper reason not to ship it: the
+   * tractor drives through parked carts, so pushing them adds the disruption without the
+   * blocking that would make it read as a collision. The README's complaint was two
+   * PARKED carts sharing a spot, and that is what this fixes.
+   */
+  void all;
+  for (const c of free) pushOutOfWalls(c, radius);
+  return moved;
 }
 
 /** Throw the top bag off the outside of the turn. GDD §10.2: it stays on the ramp,
