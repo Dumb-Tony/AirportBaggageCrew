@@ -130,7 +130,7 @@ Dev-wide catalog of what already exists and where to copy it from.
   followed by the suites that ought to care. **10 of 14 killed on the first pass. Three of
   the four survivors were the same defect — the assertion computed its expectation from the
   value under test** — and the fourth was a prober written for a known bug that only
-  `_soak.js` called, and soak does not gate. All four closed; 14/14 now. **1381 assertions,
+  `_soak.js` called, and soak does not gate. All four closed; 15/15 now. **1383 assertions,
   ten suites.**
 
 - 2026-08-24 — **M11: IS CORNERING A DECISION? Yes — for the veteran, and for nobody else.**

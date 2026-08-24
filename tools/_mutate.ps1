@@ -52,9 +52,10 @@
 # a player inside a wall. Both now have direct assertions (m1 E9f, m1 E2b) and this file's
 # second pass finds them there instead, in seconds rather than minutes.
 #
-# Second pass, after the closures: 14/14. Keep it that way — when a mutation starts
-# SURVIVING again, the assertion that used to catch it has rotted, and the report says
-# which suite lost it.
+# Second pass, after the closures: 14/14 — and 15/15 once GDD §36 added its own row,
+# `nothing-ever-spills`, which m2 kills with seven assertions. Keep it that way: when a
+# mutation starts SURVIVING again, the assertion that used to catch it has rotted, and the
+# report says which suite lost it.
 
 param(
   [string]$Only = "",

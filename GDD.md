@@ -1586,7 +1586,8 @@ asked whether the whole TREE was clean at the end, which meant no other edit cou
 to the repo for the twenty minutes a sweep takes without the run ending in a false
 RESTORE FAILED. The final check is now scoped to the files it actually mutated.
 
-**Second pass, after every survivor was closed: 14 of 14.** Two of them are now caught in
+**Second pass, after every survivor was closed: 14 of 14** — and **15 of 15** once §36 added
+`nothing-ever-spills`, which m2 kills with seven assertions. Two of them are now caught in
 a different place — the wall-shove by m1 `E9f` in seconds rather than m6 `D1.novice.12345`
 after three and a half minutes, and the x-axis wall branch by m1 `E2b` rather than
 incidentally by m6 `I2`. When a mutation starts SURVIVING again, the assertion that used to

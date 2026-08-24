@@ -15,7 +15,7 @@ serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass, an audit of the tests
 themselves, and a mutation pass that tested the audit. 1383 assertions green across ten
-suites, and 14 of 14 deliberate bugs get caught.**
+suites, and 15 of 15 deliberate bugs get caught.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -191,7 +191,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-### And the suites are tested too — 14 of 14 mutations killed
+### And the suites are tested too — 15 of 15 mutations killed
 
 ```bash
 tools\_mutate.ps1
@@ -204,12 +204,12 @@ twenty assertions that could not fail — and then missed two more in its own au
 code the same day. An assertion that cannot fail looks exactly like one that can, and the
 ones that survive review are the ones that read most convincingly.
 
-So this measures instead. Fourteen deliberate reversions of real fixes — every one a bug
+So this measures instead. Fifteen deliberate reversions of real fixes — every one a bug
 this project actually shipped — applied one at a time, each followed by the suites that
 ought to care, in cost order. A mutation that leaves a suite green is a hole in the suite,
 already named, with the file in hand.
 
-**First pass: 10 of 14 killed. Four survivors, all four now closed, and three of them were
+**First pass: 10 of 14 killed (a fifteenth was added afterwards, for GDD §36). Four survivors, all four now closed, and three of them were
 the same defect** — the assertion computed its expectation from the value under test:
 
 - `m1 I5` asserted the camera zoom equals `min(viewWidthM, cssW / MIN_PX_PER_M)`, re-derived
@@ -321,7 +321,7 @@ monetisation.
 | — | Hardening: four adversarial audits, and the coverage they exposed | **done** — 159 assertions |
 | — | The renderer draws what it claims: differential pixel checks | **done** — 38 assertions |
 | — | Colour is never the only channel, computed rather than believed | **done** — 111 assertions |
-| 10 | The suites are tested too — mutation testing (GDD §35) | **done** — 14/14 killed |
+| 10 | The suites are tested too — mutation testing (GDD §35) | **done** — 15/15 killed |
 | 11 | Is cornering a decision? (GDD §36) | **done** — answered: yes, for the veteran |
 
 ### Phase 1 acceptance (GDD §29)
