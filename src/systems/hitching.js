@@ -155,6 +155,14 @@ export function unhitchTail(state, vehicle, bus = null, simTimeMs = 0) {
   if (parent) parent.nextCartId = null;
   cart.hitchedToId = null;
   cart.nextCartId = null;
+  /*
+   * Clear the cornering state with the link. `updateTrain` only touches TOWED carts, so a
+   * cart dropped mid-corner freezes with `overLimit` still true — and `overLimit` is the
+   * once-per-episode latch, so the next hard corner after it is re-hitched goes uncounted.
+   * It under-reports rather than over-reports, which is why nothing noticed.
+   */
+  cart.overLimit = false;
+  cart.cornerDrain = 0;
 
   if (bus) bus.emit(EVENTS.CART_UNHITCHED, { cartId: cart.id, fromId: parentId }, simTimeMs);
   return cart;
@@ -309,7 +317,6 @@ export function separateFreeCarts(state) {
    * blocking that would make it read as a collision. The README's complaint was two
    * PARKED carts sharing a spot, and that is what this fixes.
    */
-  void all;
   for (const c of free) pushOutOfWalls(c, radius);
   return moved;
 }

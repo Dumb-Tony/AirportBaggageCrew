@@ -117,7 +117,7 @@ Dev-wide catalog of what already exists and where to copy it from.
   both found by the invariant sweep rather than by eye: `separate()` normalised a
   degenerate contact with a divisor of 1e-6 and flung a bag **181 km** out of the world,
   and separation could shove a bag through the sort-room wall where nothing could reach
-  it. **1343 assertions, ten suites, soak clean across 21 fuzzed shifts.**
+  it. **1345 assertions, ten suites, soak clean across 21 fuzzed shifts.**
 
 ## Phase 1 is done. What is actually left
 

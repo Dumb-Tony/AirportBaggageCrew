@@ -721,6 +721,24 @@ lines.push('--- F. spillage (GDD 6.4, 10.2) ---');
    */
   ok('F6a a hard circle registers as a corner taken above safe speed',
      fast.g.state.stats.hardCorners > 0, `${fast.g.state.stats.hardCorners} counted`);
+  /*
+   * Dropping a cart mid-corner must clear the once-per-episode latch with the link.
+   * `updateTrain` only touches TOWED carts, so an unhitched one froze with `overLimit`
+   * still true and the next hard corner after it was re-hitched went UNCOUNTED. It
+   * under-reported, which is why nothing noticed.
+   */
+  {
+    const gU = newGame();
+    const vU = gU.state.vehiclesById.tractor_1;
+    const cU = gU.state.cartsById.cart_1;
+    lineUpBehind(gU, cU, 0);
+    enterVehicle(gU.state, vU, gU.bus, 0);
+    hitch(gU.state, vU, cU, gU.bus, 0);
+    cU.overLimit = true; cU.cornerDrain = 0.9;      // as if dropped mid-corner
+    unhitchTail(gU.state, vU, gU.bus, 0);
+    eq('F6a2 unhitching clears the corner latch', cU.overLimit, false);
+    eq('F6a3 ...and the drain it had accumulated', cU.cornerDrain, 0);
+  }
   eq('F6b a careful circle registers none at all', slow.g.state.stats.hardCorners, 0);
   ok('F6c and a counted corner is one that nearly cost the load, not a steering nudge',
      fast.g.state.stats.hardCorners <= fast.cart.spills * 8 + 4,
