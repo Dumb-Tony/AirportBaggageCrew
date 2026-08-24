@@ -1542,6 +1542,7 @@ same disease this milestone exists to cure, worn as a tool.
 | hold becomes a radius again | KILLED | m3 B5, C10 |
 | corner statistic counts keystrokes | **SURVIVED** | — |
 | shift is 11 bags a flight again | **SURVIVED** | — |
+| nothing ever spills *(added by §36)* | KILLED | m2 F1, F3, F5b.pre, F5b, F6a, F9 (+1) |
 
 **Three of the four survivors are the same defect**, and it is worth naming because it is
 invisible on the page: **the assertion computed its expectation from the value under
@@ -1697,6 +1698,12 @@ shift.**
 profile on every seed — +4 points of delivery and about +900 points on the median, taking
 it from −700 to +200. It is neutral for the average crew and pure noise for the novice,
 whose shifts swing ±6 bags on whether a haul happens to clear a hold closure.
+
+**No price sweep was needed, which resolves §36.4's second criterion.** That criterion asked
+for the crossover spill price as a number, or its absence with the sweep behind it — and
+both were conditional on careful driving LOSING at the shipped price. It does not: at
+`spillLatMps2: 7.0` the veteran already gains on every seed, so there is nothing to sweep
+toward. The shipped terms are left alone.
 
 That is not a coincidence, and it retires a question the README has carried since M6:
 **the veteran scored WORSE than the average crew and nobody knew why.** It hauls at six
