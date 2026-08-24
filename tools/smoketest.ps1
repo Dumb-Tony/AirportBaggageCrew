@@ -32,12 +32,20 @@ param(
   [string]$OutFile = "",
   <#
     Chrome's virtual clock allowance for the whole page. 90 s carries every gating suite,
-    including m6's nine played shifts. It does NOT carry a diagnostic that plays eighteen
-    (tools\_corner.js), and the failure mode is the reason this is a parameter rather than
-    a bigger constant: **running out looks exactly like a crash.** Chrome stops delivering
-    time, the script never reaches its final `emit()`, and the harness reports the run as
-    failed with no error anywhere — the only clue is a progress line as the last thing in
-    the block. Raise it for the tool that needs it, so the suites keep failing fast.
+    including m6's nine played shifts, and it turned out to carry tools\_corner.js's
+    eighteen as well.
+
+    ⚠ HONEST HISTORY, because it is the more useful lesson: this parameter was added on a
+    WRONG DIAGNOSIS. _corner.js appeared to stop mid-sweep with a progress line as the last
+    thing in the block and no error anywhere, which is exactly what exhausting the virtual
+    clock looks like — so the clock got the blame. Tripling this to 300000 changed nothing,
+    because the run had actually finished all eighteen shifts and thrown afterwards in its
+    own arithmetic. An uncaught throw in an async IIFE is an unhandled rejection: the final
+    emit() never runs, and everything the tool had already printed was still sitting
+    unflushed in an array.
+
+    So the parameter is real and occasionally useful, and "the last line is a progress
+    message" means CATCH AND FLUSH before it means raise the budget.
   #>
   [int]$VirtualTimeMs = 90000,
   [switch]$Keep

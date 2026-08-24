@@ -1659,3 +1659,59 @@ implementation of the game.
    numbers — not dropped for being unexciting.
 5. `tools\_mutate.ps1` gains a mutation for whichever spill term the milestone ends up
    defending, so the conclusion cannot rot silently.
+
+### 36.5 What it found — 2026-08-24
+
+**Yes, for the crew that drives the most. No, for everyone else. And the first answer was
+wrong because the ease-off was tuned to the wrong number.**
+
+#### The two thresholds
+
+`tools\m2-tests.js` F5b now sweeps a full-lock circle with ten light bags:
+
+| speed (m/s) | 1.2 | 2.6 | 3.5 | **4.5** | 5.5 | 6.5 | 7.0 |
+|---|---|---|---|---|---|---|---|
+| bags shed | 0 | 0 | 0 | **4** | 7 | 8 | 9 |
+
+⚠ **Above ~2.6 m/s stability starts DRAINING; a bag does not leave until 4.5.** Those are
+two different numbers and the project had only ever written down the first. The careful
+policy was built on it, so its first nine paired shifts spent time avoiding a cost that
+does not exist below 4.5 — and duly measured being careful as nearly free and nearly
+pointless (spills −28%, delivery −9 bags overall, dominated by one −13 outlier).
+
+Corrected to 4.5, on the same nine pairs:
+
+| skill | delivery, paired | points, paired | spills |
+|---|---|---|---|
+| novice | +0, −4, +6 | +0, −1000, +1600 | 10 → 11 |
+| average | +0, +0, −1 | +0, +0, −250 | 17 → 12 |
+| **veteran** | **+1, +4, +1** | **+750, +1500, +250** | **23 → 11** |
+
+Spills across all nine: **50 → 34, −32%.** Cost of care: **0.5%–2.3% of a 692-second
+shift.**
+
+#### The answer
+
+**Cornering is a decision, and it is a decision for the veteran.** Easing off improves that
+profile on every seed — +4 points of delivery and about +900 points on the median, taking
+it from −700 to +200. It is neutral for the average crew and pure noise for the novice,
+whose shifts swing ±6 bags on whether a haul happens to clear a hold closure.
+
+That is not a coincidence, and it retires a question the README has carried since M6:
+**the veteran scored WORSE than the average crew and nobody knew why.** It hauls at six
+bags instead of eight, so it makes more trips, corners far more (55 hard corners a shift
+against 17), and sheds most (median 8 against 5) — and nothing in its policy accounted for
+the load it was carrying. The extra trips were paying for themselves and the cornering was
+taking it back.
+
+#### What is deliberately NOT done here
+
+**The shipped bot still drives flat out.** Making `careful` the default is a balance change,
+not a bug fix, and the numbers say what it would cost: the novice median goes from −1850 to
+−250 and its delivery from 47% to 59%. m6 `D5`/`D6` encode the design claim that a careless
+crew does not clear the shift, and 51 bags was chosen precisely because a novice finishing
+in credit turned `D6` red at 42. **Flipping the default therefore re-opens the bag count**,
+which is a sweep of its own and the third time that number would have moved.
+
+So this milestone answers its question and hands the next one a specific job, with the table
+above as its starting point. §36.3 anticipated exactly this branch.

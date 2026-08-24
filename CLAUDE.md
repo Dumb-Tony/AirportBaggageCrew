@@ -133,6 +133,22 @@ Dev-wide catalog of what already exists and where to copy it from.
   `_soak.js` called, and soak does not gate. All four closed; 14/14 now. **1381 assertions,
   ten suites.**
 
+- 2026-08-24 — **M11: IS CORNERING A DECISION? Yes — for the veteran, and for nobody else.**
+  GDD §36, authored from the README's one *genuinely still open* design question. Answering
+  it needed a bot that could ease off, because `steer` is −1/0/+1 and the throttle is held
+  or not; `_bot.js` gains an ANTICIPATORY ease-off (about to steer, above the shed speed,
+  load on the train) as a policy axis rather than a fourth skill.
+  ⚠ **The first answer was wrong because the ease-off used the OVERLOAD threshold (2.6 m/s)
+  where it needed the SHED threshold (4.5).** Corrected, over nine shifts played twice each
+  on the same seeds: spills **50 → 34 (−32%)** for **0.5–2.3%** of the shift off the
+  throttle, delivery neutral at average, noise at novice, and **+1/+4/+1 bags and
+  +750/+1500/+250 points at veteran — every seed.** That retires the M6 mystery of why the
+  veteran scored worse than the average crew: it hauls at six bags, makes more trips,
+  corners three times as often and sheds most, and its policy never accounted for the load.
+  **The shipped bot still drives flat out on purpose** — making care the default takes the
+  novice median from −1850 to −250 and 47% to 59%, which re-opens the bag count that m6
+  D5/D6 gate. That is the next milestone, not a footnote to this one. **1383 assertions.**
+
 ## Phase 1 is done. What is actually left
 
 GDD §29's Functional, UX and Quality criteria all pass (`tools/m6-tests.js`). FIVE
@@ -271,6 +287,15 @@ Budget for re-tuning three phases, not for a four-line patch.
   duration 100 ms, median cost **0.040** of one cart's stability, 5.7 bags actually shed.
   The model is doing the right thing — brief overloads are nothing, sustained ones cost a
   bag. Whether 5.7 a shift is the right PRICE is still open.
+- ⚠⚠ **THERE ARE TWO CORNERING SPEEDS AND THEY ARE NOT THE SAME NUMBER.** Above about
+  **2.6 m/s** a loaded full-lock turn clears the lateral threshold and stability starts
+  DRAINING; a bag does not actually leave until **4.5 m/s**. Measured (m2 F5b, ten light
+  bags round a full-lock circle): `1.2 → 0, 2.6 → 0, 3.5 → 0, 4.5 → 4, 5.5 → 7, 6.5 → 8,
+  7.0 → 9`. The statistic keys on the first number and the LOAD keys on the second, and
+  conflating them has already cost once — `_bot.js`'s careful-driving policy was first
+  written to ease off at 2.6, so it spent time avoiding a cost that does not exist below
+  4.5, and then measured being careful as nearly free and nearly pointless. Quote the right
+  threshold for the question being asked.
 - ⚠ **STEERING IS BINARY, so there is no such thing as a gentle correction.** `steer` is
   −1, 0 or +1, so every nudge is full lock, and full lock above about 2.6 m/s with a
   loaded cart clears the lateral threshold. Any statistic that keys on "is it over the

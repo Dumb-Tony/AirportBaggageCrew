@@ -178,6 +178,14 @@ $mutations = @(
      suites  = @("m2", "m4", "m6")
      why     = "GDD §11.3's odd statistic reading 168 a shift against 5.7 spills — noise, not a stat" }
 
+  @{ name    = "nothing-ever-spills"
+     file    = "src\config.js"
+     find    = "spillLatMps2: 7.0,"
+     replace = "spillLatMps2: 700.0,"
+     matches = 1
+     suites  = @("m2", "m6")
+     why     = "GDD §36's whole subject: raise the lateral limit and cornering stops costing anything" }
+
   @{ name    = "shift-is-11-bags-a-flight-again"
      file    = "src\data\flights.js"
      find    = "bagCount: 17,"

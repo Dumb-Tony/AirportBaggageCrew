@@ -14,7 +14,7 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass, an audit of the tests
-themselves, and a mutation pass that tested the audit. 1381 assertions green across ten
+themselves, and a mutation pass that tested the audit. 1383 assertions green across ten
 suites, and 14 of 14 deliberate bugs get caught.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
@@ -245,7 +245,7 @@ ERROR and never a result — a find string that silently matched nothing would r
 suite green and read as a flawless run. And restore is byte-exact, runs in a `finally`, and
 the run ends by asking git whether the files it touched came back.
 
-All 1381 assertions also pass under Edge:
+All 1383 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -313,7 +313,7 @@ monetisation.
 |---|---|---|
 | 0 | Skeleton and design locks | **done** — 126 assertions |
 | 1 | The bag feels good | **done** — 159 assertions |
-| 2 | Transport — carts, hitching, the tractor | **done** — 159 assertions |
+| 2 | Transport — carts, hitching, the tractor | **done** — 161 assertions |
 | 3 | Sacred schedule — flight states, board, departures | **done** — 113 assertions |
 | 4 | Outcomes and pressure — scoring, report, replay | **done** — 131 assertions |
 | 5 | Onboarding and juice — audio, hints, accessibility | **done** — 197 assertions |
@@ -322,6 +322,7 @@ monetisation.
 | — | The renderer draws what it claims: differential pixel checks | **done** — 38 assertions |
 | — | Colour is never the only channel, computed rather than believed | **done** — 111 assertions |
 | 10 | The suites are tested too — mutation testing (GDD §35) | **done** — 14/14 killed |
+| 11 | Is cornering a decision? (GDD §36) | **done** — answered: yes, for the veteran |
 
 ### Phase 1 acceptance (GDD §29)
 
@@ -511,9 +512,39 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   nudged the stick". GDD §11.3 asks for an odd statistic, and one that ticks every few
   seconds is noise.
 
-  **Genuinely still open:** whether 5.7 bags a shift — about one every two minutes, 11% of
-  the load — is the right price. That is a design question rather than a bug, and it is
-  the first time anyone has had honest numbers to argue it from.
+  ✅ **ANSWERED 2026-08-24 — cornering is a decision, and it is the veteran's decision.**
+  This entry used to end "genuinely still open: whether 5.7 bags a shift is the right
+  price". It is not open any more, and the answer needed a bot that could ease off, because
+  `steer` is −1/0/+1 and the throttle is held or not — a measurement of a choice the
+  instrument cannot express is a measurement of the instrument.
+
+  ⚠ **First the two thresholds had to be told apart.** Above about 2.6 m/s a loaded
+  full-lock turn starts DRAINING stability; a bag does not actually leave until **4.5**.
+  Only the first number had ever been written down, so the careful policy was built on it
+  and spent its time avoiding a cost that does not exist at that speed. The curve, ten light
+  bags round a full-lock circle: `1.2→0  2.6→0  3.5→0  4.5→4  5.5→7  6.5→8  7.0→9`.
+
+  Corrected, over nine shifts played twice each on the same seeds — **spills fall 32%, from
+  50 to 34, for 0.5–2.3% of the shift spent off the throttle** — and the benefit is not
+  spread evenly:
+
+  | skill | delivery, paired | points, paired |
+  |---|---|---|
+  | novice | +0, −4, +6 | noise |
+  | average | +0, +0, −1 | neutral |
+  | **veteran** | **+1, +4, +1** | **+750, +1500, +250** |
+
+  Which retires a different mystery this file has carried since M6: **the veteran scored
+  worse than the average crew and nobody knew why.** It hauls at six bags instead of eight,
+  so it makes more trips, corners three times as often (55 a shift against 17) and sheds
+  most — and nothing in its policy accounted for what it was carrying. The extra trips were
+  paying for themselves; the cornering was taking it back.
+
+  **The shipped bot still drives flat out, deliberately.** Making care the default is a
+  balance change: it takes the novice median from −1850 to −250 and its delivery from 47%
+  to 59%, and `m6 D5`/`D6` encode the claim that a careless crew does not clear the shift —
+  which is why the shift is 51 bags in the first place. That re-opens the bag count for a
+  third time, and it is the next milestone rather than a footnote to this one.
 - **Audio is synthesised, not designed.** Every cue is an oscillator or filtered noise.
   It is legible and it escalates, but it is a placeholder for a sound pass, and the
   mixing between the three beds and the one-shots has not been balanced against anything.

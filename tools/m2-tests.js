@@ -705,6 +705,39 @@ lines.push('--- F. spillage (GDD 6.4, 10.2) ---');
   eq('F5 a careful driver spills nothing', slow.cart.spills, 0);
   note(`the same circle at 1.2 m/s: ${slow.cart.spills} spilled`);
 
+  /*
+   * GDD §36 — WHERE THE THRESHOLD ACTUALLY IS, measured rather than assumed.
+   *
+   * F5 compares a 1.2 m/s crawl against a 7 m/s full-lock circle, which proves the model
+   * responds to speed and says nothing about the range a player drives in. The first
+   * attempt at fixing that asserted "3.5 m/s sheds less than full tilt" with a comment
+   * claiming both ends were in the spilling regime — and 3.5 m/s turned out to shed
+   * NOTHING, so it was F5 again with a different number and a false comment attached. The
+   * lesson is the one this project keeps re-learning: measure the boundary, do not guess
+   * which side of it your test point is on.
+   *
+   * So sweep it. The curve is the useful artefact — it says how much room there is between
+   * "brisk" and "reckless", which is exactly what §36 is asking about — and the assertions
+   * are the two things that must stay true for easing off to be a decision at all: a
+   * threshold EXISTS, and full tilt is the worst place to be.
+   */
+  const SPEEDS = [1.2, 2.6, 3.5, 4.5, 5.5, 6.5, CONFIG.tractor.maxSpeed];
+  const curve = SPEEDS.map((s) => ({ s, spills: circle(s).cart.spills }));
+  const dry = curve.filter((p) => p.spills === 0);
+  const wet = curve.filter((p) => p.spills > 0);
+  const topSpills = curve[curve.length - 1].spills;
+  ok('F5b.pre the sweep straddles a threshold, so there is a decision here to measure',
+     dry.length > 0 && wet.length > 0,
+     `${dry.length} speeds shed nothing, ${wet.length} shed something`);
+  ok('F5b full tilt sheds more than every slower speed — which is what §36 rests on',
+     curve.slice(0, -1).every((p) => p.spills < topSpills),
+     curve.map((p) => `${p.s}:${p.spills}`).join(' '));
+  note(`spill curve, ten light bags round a full-lock circle: ` +
+       `${curve.map((p) => `${p.s} m/s -> ${p.spills}`).join(', ')}`);
+  note(`the slowest speed that sheds anything is ${wet.length ? wet[0].s : '-'} m/s, ` +
+       `against a top speed of ${CONFIG.tractor.maxSpeed} — so the band where easing off ` +
+       `changes the outcome is the top ${wet.length ? (CONFIG.tractor.maxSpeed - wet[0].s).toFixed(1) : '?'} m/s`);
+
   const empty = circle(CONFIG.tractor.maxSpeed, 600, 0);
   eq('F6 an empty cart has nothing to lose', empty.cart.spills, 0);
 

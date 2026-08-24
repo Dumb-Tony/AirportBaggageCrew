@@ -96,15 +96,26 @@ export const SKILLS = Object.freeze({
  * it is above the speed at which a loaded full-lock turn sheds, and there is load behind
  * it — which is the decision a human makes at the doorway.
  *
- * 2.6 m/s is measured, not chosen: CLAUDE.md records full lock above about 2.6 m/s with a
- * loaded cart clearing the lateral threshold.
+ * ⚠ THE SPEED IS 4.5, AND THE FIRST VERSION USED 2.6 BECAUSE IT READ THE WRONG NUMBER.
+ * CLAUDE.md records that full lock above about 2.6 m/s with a loaded cart clears the
+ * lateral threshold — and that is the OVERLOAD threshold, the point where stability starts
+ * draining, not the point where a bag actually leaves. m2 F5b sweeps a full-lock circle
+ * with ten light bags and the curve is flat until 4.5:
+ *
+ *     1.2 -> 0   2.6 -> 0   3.5 -> 0   4.5 -> 4   5.5 -> 7   6.5 -> 8   7.0 -> 9
+ *
+ * So easing off at 2.6 spent time avoiding a cost that does not exist below 4.5, which is
+ * most of why being careful measured as nearly free and nearly pointless. Two thresholds,
+ * two numbers; the statistic keys on one and the load keys on the other.
  *
  * IT MUST NOT WRITE TO STATE, like everything else in here. It reads `speed` and the
  * train's load and then presses one key fewer. m6 section J deep-freezes the state under
  * `bot.step()` and would throw if this reached for a cart.
  */
-const CAREFUL_CORNER_MS = 2.6;
+const CAREFUL_CORNER_MS = 4.5;        // where a bag actually leaves    (m2 F5b sweep)
+const OVERLOAD_THRESHOLD_MS = 2.6;    // where stability starts to drain (m2 F6a) — NOT this
 const STEER_DEADZONE = 0.05;          // the same threshold _driveTo steers on
+void OVERLOAD_THRESHOLD_MS;           // documented beside its twin so the two cannot drift
 
 export class CrewBot {
   constructor(skill = 'average', opts = {}) {

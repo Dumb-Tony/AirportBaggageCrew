@@ -16,7 +16,7 @@
  * is held or not, so `CrewBot` had no gentle option — and a measurement of a choice the
  * instrument cannot express is a measurement of the instrument. That is the same trap that
  * made every per-trip cost in the balance report roughly double the real one for two
- * milestones. `_bot.js` now has an ANTICIPATORY ease-off (about to steer, above 2.6 m/s,
+ * milestones. `_bot.js` now has an ANTICIPATORY ease-off (about to steer, above 4.5 m/s,
  * load behind it) and this file is the A/B.
  *
  * It MEASURES; it does not gate. Whatever it finds goes into GDD §36 and the README, and
@@ -42,7 +42,20 @@ function emit(status) {
   _pre.textContent = '==ABCTEST-BEGIN==\n' + lines.join('\n') + '\n\n' +
     (status || 'ALL-PASS  0 assertions') + '\n==ABCTEST-END==';
 }
-const say = (s) => { lines.push(s); };
+/*
+ * ⚠ FLUSH ON EVERY LINE. `say` only appends to an array; `emit` is what writes it into the
+ * DOM the harness greps. The first two runs of this file appeared to stop mid-sweep at
+ * "RUNNING veteran careful seed 2468" — and the real story was that all eighteen shifts had
+ * already finished and it threw AFTERWARDS, in the arithmetic. Every table it had built was
+ * sitting unflushed in `lines`, so the last thing in the block was the progress line before
+ * the final run, which reads exactly like a hang. Chrome's virtual-time budget got the
+ * blame; tripling it changed nothing, because that was never it.
+ *
+ * "Emit progressively" is not enough on its own — the emit has to happen where the OUTPUT
+ * is produced, not only where the work starts. Emit on every line; this is a diagnostic,
+ * not a hot loop.
+ */
+const say = (s) => { lines.push(s); emit('RUNNING...'); };
 const newGame = (seed) => new Game({ seed, seedLabel: 'corner', storage: memoryStorage() });
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const mean = (xs) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
@@ -50,10 +63,23 @@ const mean = (xs) => xs.reduce((a, b) => a + b, 0) / (xs.length || 1);
 const SEEDS = [12345, 777, 2468];
 const SKILL_ORDER = ['novice', 'average', 'veteran'];
 
+/*
+ * ⚠ CATCH AND PRINT. The first two runs of this file stopped at the SAME cell — veteran,
+ * careful, seed 2468 — with the last line in the block being a progress message and no
+ * error anywhere, and tripling Chrome's virtual-time budget changed nothing. An uncaught
+ * throw inside an async IIFE becomes an unhandled rejection: the final `emit()` never
+ * runs, so the harness sees no verdict and reports the whole run as failed. That is
+ * indistinguishable from running out of virtual time, which is what it was first blamed on.
+ * A diagnostic that emits progressively must also emit its own stack trace.
+ */
 (async () => {
+ try {
   say('== GDD §36: flat out against careful, on identical shifts =================');
   say('');
-  say(`ease-off rule: about to steer, above 2.6 m/s, load on the train.`);
+  say('ease-off rule: about to steer, above 4.5 m/s, load on the train.');
+  say('  (4.5 is measured — m2 F5b sweeps a full-lock circle and nothing sheds below it.');
+  say('   The first run of this file used 2.6, which is where STABILITY starts draining,');
+  say('   and so spent time avoiding a cost that does not exist at that speed.)');
   say(`spill terms in play: latMps2 ${CONFIG.cart.spillLatMps2}, drainRate ${CONFIG.cart.spillDrainRate}, ` +
       `ejectMps ${CONFIG.cart.spillEjectMps}, stabilityAfter ${CONFIG.cart.spillStabilityAfter}`);
   say('');
@@ -96,55 +122,111 @@ const SKILL_ORDER = ['novice', 'average', 'veteran'];
     say('');
   }
 
-  say('== THE COMPARISON, per skill ==============================================');
+  /*
+   * ⚠ COMPARE PAIRS, NOT MEDIANS. The first version of this section differenced the two
+   * medians and announced that careful driving WINS, on +100 points at average skill and
+   * +400 at veteran — with delivery identical to the bag at all three skill levels (24, 44
+   * and 30 of 51). Both claims came out of the same three-seed sample whose own spread at
+   * veteran is 900 points.
+   *
+   * Worse, the median hid the single most interesting number in the run. Paired by seed,
+   * novice on seed 777 goes from 37 delivered to 24 — thirteen bags and 3350 points lost to
+   * easing off — and the median of {14, 24, 24} against {13, 37, 24} is 24 either way, so
+   * it vanished completely. A median is the right summary for GATING a balance claim across
+   * seeds, which is what m6 D3 uses it for; it is the wrong summary for an A/B, where every
+   * pair shares a seed and the pairing is the whole point.
+   */
+  say('== THE COMPARISON, paired by seed =========================================');
   say('');
-  let anyCarefulWins = false, anySpillReduction = false;
+  const S = CONFIG.score;
+  const perBag = (S.correctBag || 0) - (S.missedBag || 0);
+  let spillFlat = 0, spillCare = 0, spillPairsDown = 0, spillPairsUp = 0;
+  const bagDeltas = [];
   for (const skill of SKILL_ORDER) {
     const flat = rows.find((r) => r.skill === skill && !r.careful);
     const care = rows.find((r) => r.skill === skill && r.careful);
-    const dPct = care.pct - flat.pct;
-    const dPts = care.points - flat.points;
-    const dSpill = care.spills - flat.spills;
-    if (dPts > 0) anyCarefulWins = true;
-    if (dSpill < 0) anySpillReduction = true;
-    say(`  ${skill.padEnd(8)} careful is ${dPct >= 0 ? '+' : ''}${dPct} points of delivery, ` +
-        `${dPts >= 0 ? '+' : ''}${dPts} points, ${dSpill >= 0 ? '+' : ''}${dSpill} spills`);
-    /* THE ARITHMETIC THAT ACTUALLY DECIDES IT. Easing off buys bags and costs seconds;
-     * both have to be in the same currency before anything can be concluded. A bag
-     * delivered is CONFIG.scoring.correctBag and a bag missed is missedBag, so a bag saved
-     * is worth the gap between them. */
-    const S = CONFIG.scoring;
-    const perBag = (S.correctBag || 0) - (S.missedBag || 0);
-    say(`           ${care.easedS} s off the throttle bought ${-dSpill} spill(s); ` +
-        `a bag is worth ${perBag} points, so the load saved is worth ${-dSpill * perBag} ` +
-        `against a score change of ${dPts}`);
-    say(`           loaded cornering above 2.6 m/s: ${flat.loadedCornerS} s flat out, ` +
-        `${care.loadedCornerS} s careful (${care.lifts} lifts)`);
+    const shiftS = Math.round(flat.runs[0].simMs / 1000);
+    say(`  ${skill}:`);
+    SEEDS.forEach((seed, i) => {
+      const f = flat.runs[i], c = care.runs[i];
+      const dBag = c.correct - f.correct, dPts = c.points - f.points, dSp = c.spills - f.spills;
+      bagDeltas.push(dBag);
+      spillFlat += f.spills; spillCare += c.spills;
+      if (dSp < 0) spillPairsDown++; else if (dSp > 0) spillPairsUp++;
+      say(`    seed ${String(seed).padEnd(6)} ${String(f.correct).padStart(2)} -> ` +
+          `${String(c.correct).padStart(2)} bags (${dBag >= 0 ? '+' : ''}${dBag}), ` +
+          `${String(f.points).padStart(6)} -> ${String(c.points).padStart(6)} pts ` +
+          `(${dPts >= 0 ? '+' : ''}${dPts}), ` +
+          `${f.spills} -> ${c.spills} spills (${dSp >= 0 ? '+' : ''}${dSp})`);
+    });
+    /* AN OUTLIER IS ONLY WORTH SOMETHING IF IT EXPLAINS ITSELF. A pair that swings double
+     * digits is a knock-on through the haul schedule rather than a verdict on cornering,
+     * and `missesByReason` says which: bags STILL IN A CART mean a haul that left too late
+     * and found the hold shut — which at novice's `haulAt: 10` costs a whole load at once
+     * instead of a bag. Printed only where it matters, so the table stays readable. */
+    SEEDS.forEach((seed, i) => {
+      const f = flat.runs[i], c = care.runs[i];
+      if (Math.abs(c.correct - f.correct) <= 2) return;
+      say(`    !! seed ${seed} swung ${c.correct - f.correct} bags. Where they ended up:`);
+      say(`         flat out: ${JSON.stringify(f.missesByReason)}`);
+      say(`         careful : ${JSON.stringify(c.missesByReason)}`);
+      say(`         hauls ${f.bot.hauls} -> ${c.bot.hauls}, cart loads ` +
+          `${f.bot.cartLoads} -> ${c.bot.cartLoads}, hold loads ` +
+          `${f.bot.holdLoads} -> ${c.bot.holdLoads}`);
+    });
+    const pctOfShift = shiftS ? (100 * care.easedS / shiftS).toFixed(1) : '?';
+    say(`    cost of care: ${care.easedS} s off the throttle in a ${shiftS} s shift ` +
+        `(${pctOfShift}%), over ${care.lifts} lifts`);
+    say(`    loaded cornering above the shed speed: ${flat.loadedCornerS} s flat out, ` +
+        `${care.loadedCornerS} s careful`);
+    say('');
   }
-  say('');
+
+  const spillDrop = spillFlat - spillCare;
+  const spillPct = spillFlat ? Math.round(100 * spillDrop / spillFlat) : 0;
+  const bagSum = bagDeltas.reduce((a, b) => a + b, 0);
+  const bagWorst = Math.min(...bagDeltas);
+  const bagBest = Math.max(...bagDeltas);
+  const bagFlat = bagDeltas.filter((d) => Math.abs(d) <= 2).length;
 
   say('== VERDICT ================================================================');
   say('');
-  if (!anySpillReduction) {
-    say('  Easing off did NOT reduce spills at any skill level. That is a finding about');
-    say('  the MODEL, not about the price: the cost is not responsive to the only input a');
-    say('  player has, so no amount of tuning turns it into a decision. Check the ease-off');
-    say('  rule fires at all (the lift counts above) before believing this.');
-  } else if (anyCarefulWins) {
-    say('  Careful driving WINS somewhere. Cornering is already a decision and the shipped');
-    say('  crew has been playing it wrong — which moves the balance baseline and re-opens');
-    say('  the bag count. Read the per-skill lines for where the crossover sits.');
+  say(`  spills across ${bagDeltas.length} paired shifts: ${spillFlat} flat out, ${spillCare} careful ` +
+      `(${spillDrop >= 0 ? '-' : '+'}${Math.abs(spillDrop)}, ${spillPct}%), ` +
+      `down in ${spillPairsDown} pairs, up in ${spillPairsUp}`);
+  say(`  delivery: ${bagFlat} of ${bagDeltas.length} pairs move by two bags or fewer; ` +
+      `range ${bagWorst} to +${bagBest}; total ${bagSum >= 0 ? '+' : ''}${bagSum}`);
+  say(`  a bag is worth ${perBag} points, so ${spillDrop} spills saved is worth ` +
+      `up to ${spillDrop * perBag} points IF a spilled bag would otherwise have missed`);
+  say('');
+
+  if (spillPairsDown <= spillPairsUp) {
+    say('  Easing off did NOT reliably reduce spills. That is a finding about the MODEL and');
+    say('  not about the price: the cost is not responsive to the only input a player has,');
+    say('  so no amount of tuning makes it a decision. Check the lift counts first — a rule');
+    say('  that never fires proves nothing.');
+  } else if (bagFlat === bagDeltas.length) {
+    say('  THE MODEL IS RESPONSIVE AND THE STAKE IS NOT. Easing off measurably reduces');
+    say('  spills, and it changes delivery in no pair by more than two bags — while costing');
+    say('  under 4% of the shift. So being careful is nearly free AND nearly pointless: the');
+    say('  gamble is not a gamble in either direction, and cornering is not yet a decision.');
+    say('  A bigger spill price is the obvious next lever and probably the wrong one, since');
+    say('  90% of missed bags are still sitting in a cart — lost to TRIPS, not to spills.');
   } else {
-    say('  Careful driving reduces spills and still LOSES on points at every skill. So the');
-    say('  gamble is real and the price is too low: the bags saved are worth less than the');
-    say('  seconds spent saving them. That is a tuning answer if a crossover exists, and a');
-    say('  design answer if it does not — sweep the spill terms next, and if none of them');
-    say('  produce a crossover, spill needs a different KIND of cost rather than a bigger');
-    say('  one (a damaged bag, a re-collection trip) or it should be recorded as flavour.');
+    say('  Delivery moves by more than two bags in at least one pair, so the policy is not');
+    say('  outcome-neutral and the outlier is the finding. Read the paired lines: a single');
+    say('  seed swinging double digits is a knock-on through the haul schedule, not a');
+    say('  verdict on cornering, and it wants explaining before anything is tuned.');
   }
   say('');
   say(`  raw: ${JSON.stringify(rows.map((r) => ({ s: r.skill, c: r.careful, pct: r.pct,
         pts: r.points, sp: r.spills, hc: r.corners, m: r.driven, off: r.easedS })))}`);
 
   emit(`ALL-PASS  0 assertions`);
+ } catch (e) {
+  say('');
+  say('!! THREW, and here is where:');
+  say(String((e && e.stack) || e));
+  emit('FAILURES  1 of 1');
+ }
 })();
