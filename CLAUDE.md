@@ -810,6 +810,7 @@ tools\smoketest.ps1 -Tests tools\_raf.js      # is rAF usable under the harness
 tools\smoketest.ps1 -Tests tools\_balance.js  # GDD §28.4 telemetry, from a bot that plays
 tools\smoketest.ps1 -Tests tools\_route.js    # where the haul goes, and whether the bot can drive
 tools\smoketest.ps1 -Tests tools\_spill.js    # what the cart stability model is actually doing
+tools\smoketest.ps1 -Tests tools\_corner.js   # GDD 36: does easing off for a corner pay?
 tools\smoketest.ps1 -Tests tools\_escape.js   # catch anything that leaves the world, at the step
 tools\smoketest.ps1 -Tests tools\_soak.js     # fuzz every invariant after every step
 tools\_mutate.ps1                             # break the code on purpose; do the suites notice

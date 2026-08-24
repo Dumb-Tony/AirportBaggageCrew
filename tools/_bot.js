@@ -81,9 +81,38 @@ export const SKILLS = Object.freeze({
   veteran: { reactionMs: 90,  lookaheadMs: 110000, haulAt: 6,  label: 'veteran' },
 });
 
+/*
+ * ⚠ THE CAREFUL-DRIVING POLICY EXISTS TO MAKE A QUESTION ANSWERABLE (GDD §36).
+ *
+ * `steer` is −1, 0 or +1 and the throttle is held or it is not, so this bot has never had
+ * a gentle option — and a measurement of a choice the instrument cannot express is a
+ * measurement of the instrument, which is exactly the trap that made the balance telemetry
+ * wrong for two milestones. `_driveTo`'s own comment has said "the answer is to ease off,
+ * never to stop" since M2 and the code underneath it pressed the throttle unconditionally.
+ *
+ * So: an ANTICIPATORY ease-off, not a reactive one. Reacting to `cart.overLimit` would
+ * only lift the throttle after the load had already started to go, which measures nothing
+ * a player would call a decision. This one lifts BEFORE the corner — it is about to steer,
+ * it is above the speed at which a loaded full-lock turn sheds, and there is load behind
+ * it — which is the decision a human makes at the doorway.
+ *
+ * 2.6 m/s is measured, not chosen: CLAUDE.md records full lock above about 2.6 m/s with a
+ * loaded cart clearing the lateral threshold.
+ *
+ * IT MUST NOT WRITE TO STATE, like everything else in here. It reads `speed` and the
+ * train's load and then presses one key fewer. m6 section J deep-freezes the state under
+ * `bot.step()` and would throw if this reached for a cart.
+ */
+const CAREFUL_CORNER_MS = 2.6;
+const STEER_DEADZONE = 0.05;          // the same threshold _driveTo steers on
+
 export class CrewBot {
-  constructor(skill = 'average') {
+  constructor(skill = 'average', opts = {}) {
     this.skill = SKILLS[skill] || SKILLS.average;
+    /* A POLICY AXIS, deliberately not a fourth skill. Skill is how fast a crew reacts and
+     * how much it hauls; this is a different question asked of every skill level, so the
+     * sweep is policy x skill rather than a list of four presets that confound the two. */
+    this.careful = !!opts.careful;
     this.phase = 'sort';
     this.sinceDecisionMs = 0;
     this.jobBagId = null;
@@ -97,6 +126,8 @@ export class CrewBot {
       // GDD §28.4 asks for "queue length" — how deep the pile the crew is behind gets.
       // Sampled rather than accumulated: it is a level, not a count.
       queuePeak: 0, queueSamples: 0, queueSum: 0,
+      // GDD §36: what easing off actually cost, separated from what it bought.
+      easedOffMs: 0, corneringLifts: 0, loadedCorneringMs: 0,
     };
     this._lastP = null;
     this._noProgressMs = 0;
@@ -921,11 +952,35 @@ export class CrewBot {
     // The budget refills while driving forward, so a genuine multi-point turn still
     // works — back, pull forward, back again. What it cannot do is reverse across a ramp.
     this._reverseMs = Math.max(0, (this._reverseMs || 0) - CONFIG.sim.stepMs * 2);
-    if (err > 0.05) input._debugPress(KEY.right);
-    else if (err < -0.05) input._debugPress(KEY.left);
-    // Always under power. A train cornering at full tilt sheds its load, which is the M2
-    // spill model working as designed, so the answer is to ease off, never to stop.
+    if (err > STEER_DEADZONE) input._debugPress(KEY.right);
+    else if (err < -STEER_DEADZONE) input._debugPress(KEY.left);
+
+    /* A train cornering at full tilt sheds its load, which is the M2 spill model working
+     * as designed, so the answer is to ease off, never to stop. Under the flat-out policy
+     * this is where the bot ignored its own comment for two milestones and pressed the
+     * throttle anyway; both branches are now measured and GDD §36 is about which wins. */
+    const turning = Math.abs(err) > STEER_DEADZONE;
+    if (turning && v.speed > CAREFUL_CORNER_MS && this._trainIsLoaded(st, v)) {
+      this.stats.loadedCorneringMs += CONFIG.sim.stepMs;
+      if (this.careful) {
+        // Coast. Steering already pressed above; simply do not add power this step.
+        this.stats.easedOffMs += CONFIG.sim.stepMs;
+        if (!this._wasEasing) this.stats.corneringLifts++;
+        this._wasEasing = true;
+        return false;
+      }
+    }
+    this._wasEasing = false;
     input._debugPress(KEY.up);
+    return false;
+  }
+
+  /** Is there anything behind us worth slowing down for? Read-only, like everything here. */
+  _trainIsLoaded(st, v) {
+    for (const id of trainOf(st, v)) {
+      const c = st.cartsById[id];
+      if (c && c.bagIds.length) return true;
+    }
     return false;
   }
 
@@ -974,8 +1029,8 @@ export class CrewBot {
  * Play a whole shift and report what the crew managed. Returns the balance record M6
  * tunes against — every number measured through the real input path.
  */
-export function playShift(g, input, skill = 'average', maxMs = 900000) {
-  const bot = new CrewBot(skill);
+export function playShift(g, input, skill = 'average', maxMs = 900000, opts = {}) {
+  const bot = new CrewBot(skill, opts);
   const FRAME = CONFIG.sim.stepMs;
   g.startShift();
   let frames = 0;
@@ -992,6 +1047,11 @@ export function playShift(g, input, skill = 'average', maxMs = 900000) {
   const missed = flights.reduce((n, f) => n + f.outcome.missed, 0);
   return {
     skill: bot.skill.label,
+    careful: bot.careful,
+    /* GDD §36: spills read off the GAME, not off the bot — a policy that somehow moved a
+     * bag would show up here as a discrepancy rather than as a flattering number. */
+    spills: Object.values(g.state.cartsById).reduce((n, c) => n + c.spills, 0),
+    hardCorners: g.state.stats.hardCorners,
     owed, correct, misrouted, missed,
     pct: owed ? Math.round((correct / owed) * 100) : 0,
     points: g.state.score.points,

@@ -30,6 +30,16 @@ param(
   # out which assertions a deliberate bug killed) cannot get it by capturing stdout.
   # A file is unambiguous and survives the console colouring above.
   [string]$OutFile = "",
+  <#
+    Chrome's virtual clock allowance for the whole page. 90 s carries every gating suite,
+    including m6's nine played shifts. It does NOT carry a diagnostic that plays eighteen
+    (tools\_corner.js), and the failure mode is the reason this is a parameter rather than
+    a bigger constant: **running out looks exactly like a crash.** Chrome stops delivering
+    time, the script never reaches its final `emit()`, and the harness reports the run as
+    failed with no error anywhere — the only clue is a progress line as the last thing in
+    the block. Raise it for the tool that needs it, so the suites keep failing fast.
+  #>
+  [int]$VirtualTimeMs = 90000,
   [switch]$Keep
 )
 $ErrorActionPreference = "Stop"
@@ -90,7 +100,7 @@ $proc = Start-Process $chrome -ArgumentList `
   "--headless=new","--disable-gpu","--no-first-run","--no-default-browser-check",
   "--user-data-dir=$profileDir","--window-size=1280,720",
   "--autoplay-policy=no-user-gesture-required",
-  "--virtual-time-budget=90000","--dump-dom",$url `
+  "--virtual-time-budget=$VirtualTimeMs","--dump-dom",$url `
   -RedirectStandardOutput $domFile -NoNewWindow -Wait -PassThru
 
 if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }

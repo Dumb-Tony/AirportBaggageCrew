@@ -1585,3 +1585,77 @@ mojibakes into a stray quote and cascades into eleven parse errors; and the firs
 asked whether the whole TREE was clean at the end, which meant no other edit could be made
 to the repo for the twenty minutes a sweep takes without the run ending in a false
 RESTORE FAILED. The final check is now scoped to the files it actually mutated.
+
+**Second pass, after every survivor was closed: 14 of 14.** Two of them are now caught in
+a different place — the wall-shove by m1 `E9f` in seconds rather than m6 `D1.novice.12345`
+after three and a half minutes, and the x-axis wall branch by m1 `E2b` rather than
+incidentally by m6 `I2`. When a mutation starts SURVIVING again, the assertion that used to
+catch it has rotted, and the report names the suite that lost it.
+
+---
+
+## 36. Milestone 11 — Is Cornering A Decision?
+
+**Authored after the fact (2026-08-24), from the README's own "Known limitations".** It is
+the one design question that list marks *genuinely still open*, and it is the first time
+there have been honest numbers to argue it from.
+
+### 36.1 The question
+
+§6.4 permits spill to be a stability score rather than physics, and it is: lateral load is
+speed × yaw rate scaled by fill, and a full-lock circle at top speed empties a cart.
+§11.3 counts the near-losses. The design intent behind all of it is that **hauling a full
+cart fast is a gamble** — that "ease off for this corner" is a decision a player makes,
+and gets wrong, and learns from.
+
+Nobody has ever tested whether the gamble is worth taking. Measured today: the crew holds
+97% throttle, spends 94% of the open run at top speed, delivers 85% of the shift, and
+sheds **5.7 bags** doing it — about 11% of the load, one every two minutes. If the time
+saved by driving flat out is worth more than five bags, then **easing off is never the
+right play**, and the entire stability model is a cost with no decision attached to it:
+flavour, not a mechanic.
+
+That is a real possibility and the honest one to test first, because the shipped bot is
+evidence FOR it. The bot drives flat out and it is the best crew this game has.
+
+### 36.2 ⚠ The instrument cannot currently answer this
+
+`steer` is −1, 0 or +1 and the throttle is held or not, so **`CrewBot` has no gentle
+option** — it cannot ease off, so it cannot be asked whether easing off pays. This is the
+same trap that made the balance telemetry wrong for two milestones: a measurement of a
+choice the instrument cannot express is a measurement of the instrument.
+
+So the first deliverable is a bot that can drive carefully, and the constraint from
+`CLAUDE.md` binds absolutely: **`CrewBot` must never write to state.** m6 section J now
+proves that by deep-snapshot and deep-freeze, so a careful-driving policy that reaches into
+the world to slow a cart down will fail the suite rather than quietly becoming a second
+implementation of the game.
+
+### 36.3 What gets built
+
+1. A **`careful` driving policy** in `tools\_bot.js` — a throttle ceiling derived from the
+   towed load's stability margin and the turn it is about to take, expressed purely as
+   fewer key presses. Read-only, like everything else the bot does.
+2. A **sweep** of flat-out against careful, three seeds × three skills, reporting delivered
+   percentage, points, spills, hard corners, and seconds lost to the slower policy.
+3. Then the decision the sweep licenses, and only that one:
+   - if careful WINS, the model is already a mechanic and the bot has been playing badly —
+     which changes the balance baseline and re-opens the bag count for the third time;
+   - if careful LOSES at the shipped price, sweep the price (`CONFIG` spill terms) for a
+     crossover and state the value at which the gamble becomes real;
+   - if there is NO price at which careful wins, that is the finding, and it means spill
+     cannot be made into a decision by tuning — it needs a different cost (damaged bags,
+     a re-collection trip) or it should be recorded as flavour and left alone.
+
+### 36.4 Completion criteria (all measurable)
+
+1. Both policies measured across at least three seeds and three skills, medians reported,
+   with the seconds-lost figure separated from the bags-lost figure.
+2. The crossover price stated as a NUMBER, or its absence stated with the sweep behind it.
+3. An assertion that cornering has a cost a player can actually avoid — careful driving
+   sheds measurably fewer bags than flat-out on the same seed. If that fails, the model is
+   not responsive to the input at all, which is a more serious finding than the price.
+4. The negative result, if it is one, written into the README's limitations with its
+   numbers — not dropped for being unexciting.
+5. `tools\_mutate.ps1` gains a mutation for whichever spill term the milestone ends up
+   defending, so the conclusion cannot rot silently.
