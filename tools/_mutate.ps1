@@ -174,11 +174,26 @@ if ($List) {
   exit 0
 }
 
+<#
+  Is the tree dirty, without letting git's own chatter kill the script?
+  Two PS 5.1 traps, both paid for:
+    - `core.safecrlf` prints "LF will be replaced by CRLF" on stderr merely for LOOKING at
+      a file in a repo with autocrlf on. Under $ErrorActionPreference = "Stop" that native
+      stderr becomes a terminating NativeCommandError, so the run died on its own final
+      honesty check with every mutation already correctly restored.
+    - `git diff` misses an untracked file entirely. `status --porcelain` does not, and this
+      tool writes files, so the stricter question is the right one.
+#>
+function Test-Dirty {
+  $ErrorActionPreference = "Continue"          # function-scoped, restored on return
+  $out = & git -c core.safecrlf=false -C $root status --porcelain
+  return [bool]($out | Where-Object { $_ })
+}
+
 # A dirty tree makes "was it restored" unanswerable, so refuse rather than guess.
-git -C $root diff --quiet
-if ($LASTEXITCODE -ne 0) {
+if (Test-Dirty) {
   Write-Host "Working tree is dirty. Commit or stash first — this tool edits source files." -ForegroundColor Red
-  git -C $root diff --stat
+  & git -c core.safecrlf=false -C $root status --porcelain
   exit 2
 }
 
@@ -300,11 +315,10 @@ if ($errors.Count -gt 0) {
 }
 
 # The tool's own honesty check: everything it touched has to be back.
-git -C $root diff --quiet
-if ($LASTEXITCODE -ne 0) {
+if (Test-Dirty) {
   Write-Host ""
   Write-Host "RESTORE FAILED — the tree is dirty and a deliberate bug may still be in the source:" -ForegroundColor Red
-  git -C $root diff --stat
+  & git -c core.safecrlf=false -C $root status --porcelain
   exit 3
 }
 Write-Host "every mutated file restored byte-for-byte (git agrees the tree is clean)" -ForegroundColor DarkGray
