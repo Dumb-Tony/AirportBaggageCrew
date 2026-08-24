@@ -119,6 +119,20 @@ Dev-wide catalog of what already exists and where to copy it from.
   and separation could shove a bag through the sort-room wall where nothing could reach
   it. **1345 assertions, ten suites, soak clean across 21 fuzzed shifts.**
 
+- 2026-08-24 — **M10: THE SUITES ARE TESTED TOO.** GDD §35, authored after the fact. Two
+  holes found by auditing my own new code first — m9 `E5` checked the status labels in the
+  audit's OWN table rather than anything the game renders, and the rule that `CrewBot`
+  never writes to state was written in this file and checked by nothing. Both closed (m9
+  `E5` now drives a live `FlightBoard` and reads `textContent`; m6 section J deep-snapshots
+  the whole state graph either side of `bot.step()` 693 times across a shift, and
+  deep-freezes state at three checkpoints — ES modules are strict mode, so a write throws).
+  Then `tools\_mutate.ps1`: fourteen reversions of real fixes, applied one at a time, each
+  followed by the suites that ought to care. **10 of 14 killed on the first pass. Three of
+  the four survivors were the same defect — the assertion computed its expectation from the
+  value under test** — and the fourth was a prober written for a known bug that only
+  `_soak.js` called, and soak does not gate. All four closed; 14/14 now. **1381 assertions,
+  ten suites.**
+
 ## Phase 1 is done. What is actually left
 
 GDD §29's Functional, UX and Quality criteria all pass (`tools/m6-tests.js`). FIVE
@@ -525,6 +539,37 @@ Budget for re-tuning three phases, not for a four-line patch.
   the pool is provably much larger than the count. `buildBagSchedule` picked 4 priority
   bags from a 6-wide window that way; one edit to the twist numbers would have made it
   spin forever. Shuffle a candidate pool and slice instead.
+- ⚠⚠ **AN ASSERTION MUST NOT DERIVE ITS EXPECTATION FROM THE VALUE UNDER TEST.** This is
+  the single most common defect in this project's suites and it is invisible on the page —
+  it reads better than a correct assertion, because re-deriving the rule looks rigorous.
+  Three of `_mutate.ps1`'s four survivors were this: m1 `I5` asserted the zoom equals
+  `min(viewWidthM, cssW / MIN_PX_PER_M)` recomputed from the constant the camera had just
+  used, so MIN_PX_PER_M could go 28 → 1 with both sides moving together; `I5b` asked whether
+  the scale cleared MIN_PX_PER_M, which was now 1; m6 `A9` asserted the conveyor emits
+  `sum(bagCount)` bags, which is true of any bag count including 11 a flight. **The fix is
+  always an ABSOLUTE number tied to the thing the design actually cares about** — 15 px of
+  bag tag, GDD §20.2's 40-60 bags — not a re-derivation of the constant that is supposed to
+  deliver it. Keep the closed-form assertion too if it pins the SHAPE of the rule; just
+  never let it be the only one.
+- ⚠ **A PROBER IN A DIAGNOSTIC IS NOT COVERAGE.** `recoverFuzz` and `recoverSpillProbe`
+  were written specifically for the "one press of X throws a bag off a stationary train"
+  bug, and `tools\_soak.js` was their only caller. **Soak measures; it does not gate.**
+  Reverting the fix left the entire project green. Anything written to catch a specific bug
+  belongs in a suite `tools\test.ps1` runs — put it in the diagnostic as well if it prints
+  something useful, but the gate is the point.
+- **A MUTATION KILLED IN THE WRONG PLACE is a finding too.** `_mutate.ps1` tries suites in
+  COST ORDER and stops at the first kill, so the report names the cheapest catcher. Two
+  bugs were caught only by three-and-a-half-minute played shifts — the wall-shove by
+  `D1.novice.12345` on one seed at one skill, and the x-axis wall branch only incidentally,
+  because the recover test happens to manufacture a player inside a wall. Both would have
+  gone quiet on a different seed, and neither could say what broke. Coverage that exists
+  but is slow, fragile and mute is worth re-homing.
+- **A test scenario can be too CLEAN to show the bug.** m2 `F6c` bounds hard corners against
+  spills correctly and could not see `CORNER_COUNTS_AT` being zeroed, because its scenario
+  is a full-lock circle — one long overload episode against a once-per-episode latch. The
+  keystroke artefact only appears across hundreds of brief corrections, i.e. across a played
+  shift. When an assertion about a statistic passes, ask whether its scenario produces the
+  DISTRIBUTION the statistic is supposed to describe.
 - ⚠ **A GREEN SUITE PROVES THE ASSERTIONS THAT RAN PASSED — not how many ran.** Most of
   the coverage here loops over a collection (24 event names, 17 cue rows, three flights,
   nine waypoints); a loop over an empty collection contributes ZERO assertions and stays
@@ -767,6 +812,9 @@ tools\smoketest.ps1 -Tests tools\_route.js    # where the haul goes, and whether
 tools\smoketest.ps1 -Tests tools\_spill.js    # what the cart stability model is actually doing
 tools\smoketest.ps1 -Tests tools\_escape.js   # catch anything that leaves the world, at the step
 tools\smoketest.ps1 -Tests tools\_soak.js     # fuzz every invariant after every step
+tools\_mutate.ps1                             # break the code on purpose; do the suites notice
+tools\_mutate.ps1 -List                       # the mutation table, touching nothing
+tools\_mutate.ps1 -Only camera                # one mutation, by substring of its name
 tools\shot.ps1 -Setup tools\_shot-m6.js -Out docs\m6-report.png
 tools\shot.ps1 -Setup tools\_shot-m5.js -Out docs\m5-first-minute.png
 tools\shot.ps1 -Setup tools\_shot-m5-settings.js -Out docs\m5-settings.png

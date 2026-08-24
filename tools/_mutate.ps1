@@ -29,6 +29,32 @@
 #
 # It also refuses to start on a dirty tree, so a crash can never be confused with your
 # own uncommitted edit.
+#
+# ── FIRST PASS, 2026-08-24: 10 OF 14 KILLED. Four survivors, all four real holes. ──
+#
+# THREE OF THE FOUR WERE THE SAME DEFECT and it is invisible on the page, because it reads
+# BETTER than a correct assertion — the assertion computed its expectation from the value
+# under test. m1 `I5` asserted the zoom equals `min(viewWidthM, cssW / MIN_PX_PER_M)`,
+# re-derived from the constant the camera had just used, so 28 -> 1 moved both sides
+# together; `I5b` asked whether the scale cleared MIN_PX_PER_M, which was now 1; m6 `A9`
+# asserted the conveyor emits `sum(bagCount)` bags, which is true of 11 a flight as
+# happily as of 17. The fix in each case is an ABSOLUTE number tied to what the design
+# actually cares about — 15 px of legible bag tag, GDD §20.2's 40-60 bags.
+#
+# The fourth was worse than a missing assertion: `recoverFuzz` and `recoverSpillProbe`
+# were written FOR the train re-seat bug and `tools\_soak.js` was their only caller. Soak
+# measures; it does not gate.
+#
+# TWO MORE WERE KILLED IN THE WRONG PLACE, which the cost-ordered suite list above makes
+# visible and which is worth as much as the survivors: the wall-shove bug only by a played
+# shift on one seed at one skill, 3.5 minutes in, and the x-axis wall branch — every
+# doorway in the game — only incidentally, because the recover test happens to manufacture
+# a player inside a wall. Both now have direct assertions (m1 E9f, m1 E2b) and this file's
+# second pass finds them there instead, in seconds rather than minutes.
+#
+# Second pass, after the closures: 14/14. Keep it that way — when a mutation starts
+# SURVIVING again, the assertion that used to catch it has rotted, and the report says
+# which suite lost it.
 
 param(
   [string]$Only = "",

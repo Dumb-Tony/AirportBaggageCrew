@@ -13,8 +13,9 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1345 assertions green across ten suites.**
+**Current state: Phase 1 feature-complete, plus a hardening pass, an audit of the tests
+themselves, and a mutation pass that tested the audit. 1381 assertions green across ten
+suites, and 14 of 14 deliberate bugs get caught.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -190,7 +191,61 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1345 assertions also pass under Edge:
+### And the suites are tested too — 14 of 14 mutations killed
+
+```bash
+tools\_mutate.ps1
+```
+
+The count baseline above closes one half of "is a green suite worth anything". The other
+half is *can these assertions fail at all*, and the honest answer is that **reading them
+is not an instrument.** A meta-audit read all nine suites, four agents deep, found roughly
+twenty assertions that could not fail — and then missed two more in its own author's new
+code the same day. An assertion that cannot fail looks exactly like one that can, and the
+ones that survive review are the ones that read most convincingly.
+
+So this measures instead. Fourteen deliberate reversions of real fixes — every one a bug
+this project actually shipped — applied one at a time, each followed by the suites that
+ought to care, in cost order. A mutation that leaves a suite green is a hole in the suite,
+already named, with the file in hand.
+
+**First pass: 10 of 14 killed. Four survivors, all four now closed, and three of them were
+the same defect** — the assertion computed its expectation from the value under test:
+
+- `m1 I5` asserted the camera zoom equals `min(viewWidthM, cssW / MIN_PX_PER_M)`, re-derived
+  from the very constant the camera used, so both sides moved together. Deleting the
+  readability floor outright (28 → 1) left m0, m1 and m6 green. It is also a regime nothing
+  had ever rendered: the floor only *acts* below a ~1290 px window and every suite runs at
+  ~1262 px. Closed with an absolute 15 px tag floor swept across six real window widths —
+  at 640 px a bag tag is 20.2 px with the floor and 10.0 px without.
+- `m6 A9` asserted the conveyor emits `sum(bagCount)` bags. True of any bag count at all,
+  including 11 a flight, which is outside both GDD ranges and a shift a careless crew
+  finishes in credit. Closed with §20.2's 40–60 and §20.4's 14–18 as absolute ranges.
+- The §11.3 "corners taken above safe speed" statistic could go back to counting keystrokes
+  and nothing noticed. `m2 F6c` bounds corners against spills correctly, but in a full-lock
+  circle — *one* long overload episode against a once-per-episode latch. The artefact needs
+  hundreds of brief corrections, so it needs a played shift: 37 corners against 5 spills
+  measured, about 33× with the bug.
+- The fourth is worse than a missing assertion. `recoverFuzz` and `recoverSpillProbe` were
+  written *for* the "one press of X throws a bag off a stationary train" bug — and
+  `tools\_soak.js` was their only caller. **Soak measures; it does not gate.** A prober for
+  a known bug, sitting in a diagnostic, is not coverage. Both now run in `m6`.
+
+Two more mutations were **killed in the wrong place**, which the cost-ordered suite list
+makes visible and which is worth as much as the survivors: the separation-through-a-wall
+bug was caught only by a played shift on one seed at one skill level, three and a half
+minutes in, reporting "nothing stranded the crew" without being able to say what did; and
+disabling the x-axis branch of `moveWithWalls` — the branch holding every doorway in the
+game — was caught only *incidentally*, because the recover test happens to manufacture a
+player inside a wall. Both now have direct assertions that run in milliseconds.
+
+The harness holds itself to two rules, because a mutation tool can catch the same disease
+it was built to cure. A substitution that does not match the expected number of times is an
+ERROR and never a result — a find string that silently matched nothing would report every
+suite green and read as a flawless run. And restore is byte-exact, runs in a `finally`, and
+the run ends by asking git whether the files it touched came back.
+
+All 1381 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -256,16 +311,17 @@ monetisation.
 
 | # | Name | State |
 |---|---|---|
-| 0 | Skeleton and design locks | **done** — 122 assertions |
-| 1 | The bag feels good | **done** — 143 assertions |
-| 2 | Transport — carts, hitching, the tractor | **done** — 146 assertions |
-| 3 | Sacred schedule — flight states, board, departures | **done** — 109 assertions |
+| 0 | Skeleton and design locks | **done** — 126 assertions |
+| 1 | The bag feels good | **done** — 159 assertions |
+| 2 | Transport — carts, hitching, the tractor | **done** — 159 assertions |
+| 3 | Sacred schedule — flight states, board, departures | **done** — 113 assertions |
 | 4 | Outcomes and pressure — scoring, report, replay | **done** — 131 assertions |
-| 5 | Onboarding and juice — audio, hints, accessibility | **done** — 190 assertions |
-| 6 | Balance and hardening | **done** — 170 assertions |
+| 5 | Onboarding and juice — audio, hints, accessibility | **done** — 197 assertions |
+| 6 | Balance and hardening | **done** — 188 assertions |
 | — | Hardening: four adversarial audits, and the coverage they exposed | **done** — 159 assertions |
 | — | The renderer draws what it claims: differential pixel checks | **done** — 38 assertions |
-| — | Colour is never the only channel, computed rather than believed | **done** — 109 assertions |
+| — | Colour is never the only channel, computed rather than believed | **done** — 111 assertions |
+| 10 | The suites are tested too — mutation testing (GDD §35) | **done** — 14/14 killed |
 
 ### Phase 1 acceptance (GDD §29)
 
@@ -299,8 +355,8 @@ Milestone 1 — the bag:
 | Two seconds of walking | 8.1 m empty-handed · 5.1 m carrying a heavy bag |
 | A bag thrown at 8 m/s | slides 1.35 s before stopping |
 | Conveyor | 21 m of belt at 1.6 m/s — a 13 s ride |
-| Authored shift | 50 bags across 3 flights; heavy bags 6% AB221, 31% MC184, 39% SK307 |
-| 100 loose bags | 0.23 ms per simulation step, against a 16.67 ms budget |
+| Authored shift | 51 bags across 3 flights; heavy bags 12% AB221, 29% MC184, 41% SK307 |
+| 100 loose bags | 0.17 ms per simulation step, against a 16.67 ms budget |
 
 Milestone 2 — transport:
 
