@@ -184,10 +184,33 @@ if ($List) {
     - `git diff` misses an untracked file entirely. `status --porcelain` does not, and this
       tool writes files, so the stricter question is the right one.
 #>
-function Test-Dirty {
+function Get-DirtyPaths {
   $ErrorActionPreference = "Continue"          # function-scoped, restored on return
   $out = & git -c core.safecrlf=false -C $root status --porcelain
-  return [bool]($out | Where-Object { $_ })
+  return @($out | Where-Object { $_ } | ForEach-Object { ($_ -replace '^..\s+', '').Trim() })
+}
+function Test-Dirty { return (Get-DirtyPaths).Count -gt 0 }
+
+<#
+  THE RESTORE CHECK IS ABOUT THE FILES THIS TOOL TOUCHED, not about the tree.
+  The first version asked whether the whole tree was clean, which was too strong in a way
+  that mattered: a full sweep takes twenty minutes, and for those twenty minutes no other
+  edit could be made to the repo without the run ending in a false RESTORE FAILED. Worse,
+  the false alarm and the real one looked identical, which is the wrong way round — the
+  alarm that cries wolf is the one nobody reads.
+
+  Refusing to START on a dirty tree is still right: it costs nothing and it makes the
+  before-and-after comparison meaningful. It is only the FINAL check that has to be
+  narrow, and narrow is also more precise — it names the mutated file rather than a diff.
+#>
+function Test-MutatedFilesRestored($paths) {
+  $dirty = Get-DirtyPaths
+  $bad = @()
+  foreach ($p in $paths) {
+    $norm = ($p -replace '\\', '/')
+    if ($dirty -contains $norm) { $bad += $norm }
+  }
+  return $bad
 }
 
 # A dirty tree makes "was it restored" unanswerable, so refuse rather than guess.
@@ -314,13 +337,22 @@ if ($errors.Count -gt 0) {
   Write-Host "$($errors.Count) mutation(s) could not be applied and are NOT scored — fix the find strings." -ForegroundColor Yellow
 }
 
-# The tool's own honesty check: everything it touched has to be back.
-if (Test-Dirty) {
+# The tool's own honesty check: every file it touched has to be back.
+$touched = @($mutations | ForEach-Object { $_.file } | Select-Object -Unique)
+$notRestored = Test-MutatedFilesRestored $touched
+if ($notRestored.Count -gt 0) {
   Write-Host ""
-  Write-Host "RESTORE FAILED — the tree is dirty and a deliberate bug may still be in the source:" -ForegroundColor Red
-  & git -c core.safecrlf=false -C $root status --porcelain
+  Write-Host "RESTORE FAILED — a deliberate bug may still be in the source:" -ForegroundColor Red
+  foreach ($p in $notRestored) { Write-Host "    $p" -ForegroundColor Red }
+  Write-Host "    recover with: git checkout -- $($notRestored -join ' ')" -ForegroundColor Yellow
   exit 3
 }
-Write-Host "every mutated file restored byte-for-byte (git agrees the tree is clean)" -ForegroundColor DarkGray
+Write-Host "all $($touched.Count) mutated file(s) restored byte-for-byte" -ForegroundColor DarkGray
+$otherDirt = @(Get-DirtyPaths | Where-Object { $touched -notcontains ($_ -replace '/', '\') })
+if ($otherDirt.Count -gt 0) {
+  # Not a failure. Somebody edited the repo while this ran, which is fine now that the
+  # check is scoped — but say so, so the tree state is never a surprise.
+  Write-Host "note: $($otherDirt.Count) other file(s) changed during the run: $($otherDirt -join ', ')" -ForegroundColor DarkGray
+}
 if ($lived.Count -gt 0 -or $errors.Count -gt 0) { exit 1 }
 exit 0

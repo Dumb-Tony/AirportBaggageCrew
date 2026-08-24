@@ -24,8 +24,8 @@ import { beltPos } from '../src/entities/conveyor.js';
 import { moveBag, assertContainment, countByLocation, isLoose, LOCATION_TYPES } from '../src/systems/containment.js';
 import { moveWithWalls, applyFriction, separate, approach } from '../src/systems/physics.js';
 import { findTarget, scanBag, throwHeld, releaseHeld } from '../src/systems/interaction.js';
-import { STAGING_PADS, ZONES, CONVEYOR, WORLD, isBlocked, zoneAt } from '../src/data/airport.js';
-import { MIN_PX_PER_M } from '../src/render/camera.js';
+import { STAGING_PADS, ZONES, CONVEYOR, WORLD, WALLS, isBlocked, zoneAt } from '../src/data/airport.js';
+import { Camera, MIN_PX_PER_M } from '../src/render/camera.js';
 
 /* ── harness ─────────────────────────────────────────────────────────────── */
 const lines = [];
@@ -437,6 +437,20 @@ lines.push('--- E. arcade physics (GDD 6.2, 21.6, 24.3) ---');
   ok('E1 a wall stops movement', e.y > 8.6, `y=${e.y.toFixed(2)}`);
   ok('E2 and nothing ends up inside it', !isBlocked(e.x, e.y, 0.34));
 
+  /*
+   * THE OTHER AXIS. E1 and E2 walk NORTH, so between them they exercise exactly one of the
+   * two independent branches in `moveWithWalls` — and the x branch is the one holding the
+   * sort room's east and west walls, which is every doorway in the game.
+   * `tools\_mutate.ps1` disabled the x branch outright and m0 stayed green (126) and m1
+   * stayed green (147); the only assertion that noticed was m6 I2, three minutes in, and
+   * only because the recover test happens to manufacture a player inside a wall and then
+   * try to walk them out. Two axes, two assertions.
+   */
+  const wst = { x: 20, y: 24, vx: -6, vy: 0 };          // west, into room_w (x 4.0..4.6)
+  for (let i = 0; i < 400; i++) moveWithWalls(wst, 1 / 60, 0.34, 0);
+  ok('E2b a wall stops movement on the x axis too', wst.x > 4.6, `x=${wst.x.toFixed(2)}`);
+  ok('E2c and nothing ends up inside it', !isBlocked(wst.x, wst.y, 0.34));
+
   // moving diagonally into the same wall must preserve the sideways component
   const s = { x: 20, y: 10, vx: 3, vy: -6 };
   const x0 = s.x;
@@ -501,6 +515,64 @@ lines.push('--- E. arcade physics (GDD 6.2, 21.6, 24.3) ---');
   separate(n1, n2, 0.8, 0.5, 1.0);
   near('E9e a pair one float apart is separated by exactly minDist too',
        Math.hypot(n2.x - n1.x, n2.y - n1.y), 0.8, 1e-6);
+
+  /*
+   * ⚠ SEPARATION IS A TELEPORT, so anything it moves has to be pushed back out of walls.
+   *
+   * `separate` writes positions directly instead of going through `moveWithWalls`, so the
+   * player leaning on a bag against the sort room's west wall shoves it INTO the wall —
+   * and `moveWithWalls` will not bring it back, because it never commits a move whose
+   * destination is blocked. Measured on a 51-bag shift: a novice crew stood at (4.9, 13)
+   * reaching for a bag at (3.4, 13), behind a wall at x = 4, and re-tried every six seconds
+   * for the last minute of the shift. That is GDD §29's "no known blocker can make a
+   * required bag permanently unreachable".
+   *
+   * WHY THIS BLOCK EXISTS, AND IT IS NOT THE OBVIOUS REASON. The fix shipped with the bug;
+   * what was missing was coverage, and `tools\_mutate.ps1` is what proved it. Reverting the
+   * fix leaves m1 green (147) and m7 green (159), and the only assertion in the project
+   * that notices is m6 `D1.novice.12345` — a played shift, ONE seed, ONE skill, three and a
+   * half minutes in, reporting "nothing stranded the crew" without being able to say what
+   * did. That is real coverage in the wrong place: it would go quiet on a different seed.
+   * This is the same bug in a tenth of a second, and it names the wall.
+   */
+  {
+    const wall = WALLS.find((w) => w.id === 'room_w');    // x 4.0 .. 4.6, the room's west side
+    const g = newGame(4242);
+    const bag = createBag({ flightId: FLIGHT_DEFS[0].id, priority: false, weightClass: 'normal' },
+                          90001, 0, new Rng(31, 'pile'));
+    g.state.bagsById[bag.id] = bag;
+    bag.x = 5.05; bag.y = 13; bag.vx = 0; bag.vy = 0;
+    moveBag(g.state, bag, { type: 'floor' }, g.bus, g.state.simTimeMs);
+    // The player leans on it from the east, which is exactly what step 3 of stepBags models.
+    const p = g.state.player;
+    p.x = 5.40; p.y = 13; p.vx = 0; p.vy = 0; p.drivingId = null;
+    const startX = bag.x;
+    const clearAt = wall.x + wall.w + bag.radiusM;        // east face plus one bag radius
+
+    drive(g, 120);
+
+    /* The pre-condition cannot be "the bag moved a long way", because with the fix in place
+     * it does not: separation puts it at 4.70, INSIDE the wall, and `pushOutOfWalls` brings
+     * it straight back to 4.96 in the same step. Net travel is 0.09 m and the excursion is
+     * unobservable from out here. So assert the geometry instead — separation's own resting
+     * place for this bag IS inside the wall — plus the fact that it was moved at all. Both
+     * halves are needed: the first makes the scenario the real one, the second proves the
+     * push happened rather than the bag simply sitting where it was put. */
+    const pushTarget = p.x - (p.radiusM + bag.radiusM);
+    ok('E9f.pre separation would rest this bag inside the wall, and it really was pushed',
+       isBlocked(pushTarget, bag.y, bag.radiusM) && startX - bag.x > 0.02,
+       `separation target x=${pushTarget.toFixed(2)} ` +
+       `(blocked=${isBlocked(pushTarget, bag.y, bag.radiusM)}), ` +
+       `bag moved ${(startX - bag.x).toFixed(3)} m west to x=${bag.x.toFixed(3)}`);
+    ok('E9f ...and separation never leaves it inside the wall',
+       !isBlocked(bag.x, bag.y, bag.radiusM),
+       `x=${bag.x.toFixed(3)} against a wall spanning ${wall.x}..${(wall.x + wall.w).toFixed(1)}`);
+    ok('E9g ...nor on the far side of it, where nobody could ever reach it',
+       bag.x >= wall.x + wall.w,
+       `x=${bag.x.toFixed(3)}, wall east face ${(wall.x + wall.w).toFixed(1)}`);
+    note(`a bag leaned on at a wall settles at x=${bag.x.toFixed(3)}, ` +
+         `${(bag.x - clearAt).toFixed(3)} m clear of its blocking radius`);
+  }
 
   eq('E10 approach never overshoots its target', approach(0, 10, 3), 3);
   eq('E11 approach lands exactly on target', approach(9, 10, 3), 10);
@@ -884,6 +956,65 @@ async function sectionI() {
   ok('I5b a bag tag never renders below the legibility floor',
      camera.scale >= MIN_PX_PER_M - 1e-9,
      `${camera.scale.toFixed(1)} px/m across a ${camera.cssW} px window`);
+
+  /*
+   * ⚠ I5 AND I5b BOTH DERIVE THEIR EXPECTATION FROM THE CONSTANT UNDER TEST, so neither can
+   * fail when it changes. `tools\_mutate.ps1` set MIN_PX_PER_M from 28 to 1 — deleting the
+   * readability floor outright — and m0 (126), m1 (147) and m6 (180) all stayed green. I5
+   * recomputes `min(viewWidthM, cssW / MIN_PX_PER_M)` from the same number the camera used,
+   * so both sides move together; I5b asks whether the scale clears MIN_PX_PER_M, which is
+   * now 1. Both read convincingly and neither is falsifiable.
+   *
+   * They are still worth keeping — I5 pins the SHAPE of the rule and caught a real
+   * regression when the floor arrived — but the claim that matters is ABSOLUTE, and it is
+   * about window widths no suite had ever rendered at. The floor exists for a 1280 px laptop
+   * and narrower; every suite in this project runs at ~1262 px, where deleting it changes
+   * the zoom by 2% and nothing notices. m6 C2 makes the right kind of claim and makes it at
+   * 1280 only.
+   *
+   * So: sweep real widths through the real `resize()` path and assert a bag's tag in PIXELS
+   * against the legibility number GDD §7.2 is about, rather than against the constant that
+   * is supposed to deliver it. At 640 px that is 20.2 px with the floor and 10.0 px without.
+   */
+  {
+    const BAG_M = 0.72;            // the widest authored suitcase, the same figure m6 C2 uses
+    const LEGIBLE_PX = 15;         // below this its three-channel tag stops being readable
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:-9999px;top:0';
+    document.body.appendChild(host);
+    const probe = document.createElement('canvas');
+    host.appendChild(probe);
+
+    const scaleAt = (w) => {
+      probe.style.width = `${w}px`;
+      probe.style.height = '720px';
+      const cam = new Camera({
+        worldW: WORLD.widthM, worldH: WORLD.heightM,
+        paddingM: CONFIG.render.fitPaddingM, maxPixelRatio: CONFIG.render.maxPixelRatio,
+        viewWidthM: CONFIG.render.viewWidthM, followLerp: CONFIG.render.followLerp,
+        squash: CONFIG.render.groundSquash,
+      });
+      cam.resize(probe);
+      return { cssW: cam.cssW, scale: cam.scale, px: BAG_M * cam.scale };
+    };
+
+    // The floor has to BIND somewhere in the sweep, or the sweep proves nothing about it.
+    const narrow = scaleAt(640);
+    ok('I5c.pre the readability floor actually binds at the narrow end of the sweep',
+       narrow.scale > narrow.cssW / CONFIG.render.viewWidthM + 1,
+       `${narrow.scale.toFixed(1)} px/m at a ${narrow.cssW} px window, where the view-width ` +
+       `ceiling alone would give ${(narrow.cssW / CONFIG.render.viewWidthM).toFixed(1)}`);
+
+    const seen = [];
+    for (const w of [640, 800, 1024, 1280, 1600, 1920]) {
+      const r = scaleAt(w);
+      seen.push(`${r.cssW}px:${r.px.toFixed(1)}`);
+      ok(`I5c.${w} a bag tag is at least ${LEGIBLE_PX} px wide in a ${w} px window`,
+         r.px >= LEGIBLE_PX, `${r.px.toFixed(1)} px at ${r.scale.toFixed(1)} px/m`);
+    }
+    note(`bag width in px by window width: ${seen.join('  ')}`);
+    host.remove();
+  }
   ok('I6 the camera stays inside the world',
      camera.centre.x >= camera.visibleM.w / 2 - 0.01 &&
      camera.centre.x <= WORLD.widthM - camera.visibleM.w / 2 + 0.01,

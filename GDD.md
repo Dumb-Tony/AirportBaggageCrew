@@ -1521,3 +1521,67 @@ same disease this milestone exists to cure, worn as a tool.
 5. The harness refuses to start on a dirty working tree, so a crash can never be confused
    with a source edit.
 6. The kill rate is stated as a number in the README, not described as good.
+
+### 35.4 What it found — first pass, 2026-08-24
+
+**10 of 14 killed. Four survivors, every one a real hole, all four now closed.**
+
+| mutation | verdict | caught by |
+|---|---|---|
+| degenerate separation normal | KILLED | m1 E9b, E9d, E9e |
+| separated bag not pushed out of walls | KILLED | m6 D1.novice.12345 *(one seed, 3.5 min in)* |
+| recover does not re-seat the train | **SURVIVED** | — |
+| conveyor bags sort under the belt | KILLED | m8 A3, E7 |
+| cart bags sort under the bed | KILLED | m8 E6 |
+| aircraft ground pass rotates again | KILLED | m8 C1, C3 |
+| clock runs behind the title screen | KILLED | m0 C3, H9 |
+| camera readability floor removed | **SURVIVED** | — |
+| priority miss costs no more than any other | KILLED | m4 B0.6 |
+| signal separation threshold to nothing | KILLED | m9 A31 |
+| walls stop blocking movement | KILLED | m6 I2 *(incidentally, 3 min in)* |
+| hold becomes a radius again | KILLED | m3 B5, C10 |
+| corner statistic counts keystrokes | **SURVIVED** | — |
+| shift is 11 bags a flight again | **SURVIVED** | — |
+
+**Three of the four survivors are the same defect**, and it is worth naming because it is
+invisible on the page: **the assertion computed its expectation from the value under
+test.**
+
+- m1 `I5` asserted the zoom equals `min(viewWidthM, cssW / MIN_PX_PER_M)` — re-derived from
+  the very constant the camera used, so both sides move together and it cannot fail. `I5b`
+  asked whether the scale clears `MIN_PX_PER_M`, which the mutation set to 1. Compounding
+  it, the readability floor only ACTS below a ~1290 px window and every suite in this
+  project renders at ~1262 px, where deleting it changes the zoom by 2%.
+- m6 `A9` asserted the conveyor emits `FLIGHT_DEFS.reduce(sum of bagCount)` bags. True of
+  any bag count whatsoever, including 11 a flight — outside both §20.2 and §20.4, and a
+  shift a careless crew finishes in credit.
+- The corner statistic survived for a subtler reason: m2 `F6c` bounds hard corners against
+  spills correctly, but its scenario is a full-lock circle, which is ONE long overload
+  episode, and `overLimit` is a once-per-episode latch. The keystroke artefact only appears
+  across hundreds of brief corrections — which means across a played shift, which nothing
+  measured.
+- The fourth is different and worse: `recoverFuzz` and `recoverSpillProbe` were written
+  specifically for the re-seat bug, and `tools\_soak.js` was their only caller. **Soak
+  measures; it does not gate.** A prober for a known bug, sitting in a diagnostic, is not
+  coverage.
+
+**Two mutations were killed in the wrong place**, which the cost-ordered suite list makes
+visible and which is worth as much as the survivors. The wall-shove bug was caught only by
+a played shift on one seed at one skill level, three and a half minutes in, reporting
+"nothing stranded the crew" without being able to say what did — it would go quiet on a
+different seed. And disabling the x-axis branch of `moveWithWalls` — the branch holding
+every doorway in the game — was caught only incidentally, by the recover test happening to
+manufacture a player inside a wall. Both now have direct assertions that run in
+milliseconds and name the wall.
+
+**Closures:** m1 `E2b`/`E2c` (the other axis), `E9f`/`E9g` (separation against a wall),
+`I5c.*` (an absolute pixel floor across six window widths); m3 `A0`/`A0b` (§20.2 and §20.4
+as absolute ranges); m6 `D13` (§11.3 measured over a played shift), `H10`–`H12` (the
+recover probers, wired into a gating suite).
+
+**The harness had two bugs of its own**, both recorded in the script: a `.ps1` without a
+UTF-8 BOM is decoded as ANSI by PS 5.1, so an em-dash inside a double-quoted string
+mojibakes into a stray quote and cascades into eleven parse errors; and the first version
+asked whether the whole TREE was clean at the end, which meant no other edit could be made
+to the repo for the twenty minutes a sweep takes without the run ending in a false
+RESTORE FAILED. The final check is now scoped to the files it actually mutated.

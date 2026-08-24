@@ -33,7 +33,8 @@ import { setPlacard } from '../src/systems/interaction.js';
 import { createScore, scoreFlight } from '../src/systems/scoring.js';
 import { FlightBoard } from '../src/ui/flightBoard.js';
 import { playShift, SKILLS, CrewBot } from './_bot.js';
-import { fuzzShift, guidedFuzz, restartTorture } from './_invariants.js';
+import { fuzzShift, guidedFuzz, restartTorture, recoverFuzz, recoverSpillProbe }
+  from './_invariants.js';
 
 /* ── harness ─────────────────────────────────────────────────────────────── */
 const lines = [];
@@ -480,9 +481,12 @@ lines.push('--- D. GDD §29 Quality: a shift somebody played ---');
   const SKILL_ORDER = ['novice', 'average', 'veteran'];
   const runs = {};
   const results = [];
+  const played = {};                 // the game objects, kept — see D13 below
   for (const skill of SKILL_ORDER) {
     runs[skill] = SEEDS.map((seed) => {
-      const r = playShift(newGame(seed), new Input(window), skill);
+      const g = newGame(seed);
+      const r = playShift(g, new Input(window), skill);
+      played[`${skill}.${seed}`] = g;
       results.push({ seed, r });
       return r;
     });
@@ -564,6 +568,40 @@ lines.push('--- D. GDD §29 Quality: a shift somebody played ---');
   eq('D12 and every bag is in exactly one place',
     Object.values(byLoc).reduce((a, b) => a + b, 0), seen.size);
   note(`      played shift, seed 2024: ${JSON.stringify(byLoc)}`);
+
+  /*
+   * ⚠ GDD §11.3'S ODD STATISTIC HAS TO BE A STATISTIC, AND ONLY A WHOLE SHIFT CAN TELL.
+   *
+   * "Cart corners taken above safe speed" read 168 a shift — one every three and a half
+   * seconds — against 5.7 bags actually shed. Both numbers cannot describe the same thing.
+   * Steering is binary, so every course correction is full lock, and full lock above about
+   * 2.6 m/s with a loaded cart clears the lateral threshold: the counter was counting
+   * KEYSTROKES. `CORNER_COUNTS_AT` fixed it by requiring an overload to have cost a
+   * quarter of the cart's grip first, which gives 22 against 5.7.
+   *
+   * m2 F6c already bounds corners against spills and could not see this: its scenario is a
+   * full-lock circle at top speed, which is ONE long overload episode, and `overLimit` is a
+   * once-per-episode latch. The artefact only appears across hundreds of brief corrections,
+   * which means across a played shift. `tools\_mutate.ps1` set CORNER_COUNTS_AT to 0 and
+   * m2 (159), m4 (131) and m6 (180) all stayed green.
+   *
+   * The bound is deliberately loose — this is not a tuning assertion, it is the difference
+   * between a statistic and a keyboard trace. Measured 7.4x on this shift (37 corners, 5
+   * spills); the bug gives about 33x, because it counts every overload entry and there are
+   * 168 of those a shift. 15x sits cleanly between the two with room either side.
+   */
+  const cg = played['average.12345'];
+  const hardCorners = cg.state.stats.hardCorners;
+  const spilled = Object.values(cg.state.cartsById).reduce((n, c) => n + c.spills, 0);
+  ok('D13.pre the played shift really cornered hard and really shed load',
+     hardCorners > 0 && spilled > 0, `${hardCorners} corners, ${spilled} spills`);
+  ok('D13 §11.3 counts near-losses, not keystrokes: hard corners stay within 15x of spills',
+     hardCorners <= Math.max(1, spilled) * 15,
+     `${hardCorners} corners against ${spilled} spills — ` +
+     `${(hardCorners / Math.max(1, spilled)).toFixed(1)}x, and a counter that ticks every ` +
+     'few seconds is noise rather than an odd statistic');
+  note(`      §11.3 over a played shift: ${hardCorners} hard corners, ${spilled} spills ` +
+       `(${(hardCorners / Math.max(1, spilled)).toFixed(1)}x)`);
 }
 
 /* ── E. §29 QUALITY: performance with 100 bags, and no stuck geometry ────── */
@@ -857,6 +895,49 @@ lines.push('--- H. fuzz: random input against every invariant, every step ---');
   ok('H8 eight restarts mid-shift raise no error', !rt.threw,
     rt.threw && String(rt.threw).split('\n')[0]);
   eq('H9 and leave nothing behind', rt.problems.length, 0, JSON.stringify(rt.problems.slice(0, 3)));
+
+  /*
+   * ⚠ THE RECOVER VERB, WHICH HAD A PURPOSE-BUILT PROBER THAT NO GATING SUITE RAN.
+   *
+   * `recoverStuck` must re-seat the train before it returns, because its pushes are
+   * teleports and it runs LATER in the step than `updateTrain` — without that, the next
+   * step's constraint snap is differenced as motion and one press of X throws a bag off a
+   * train standing perfectly still. `_invariants.js` has `recoverFuzz` and
+   * `recoverSpillProbe` written specifically for it, and `tools\_soak.js` was the only
+   * caller. Soak MEASURES; it does not gate.
+   *
+   * `tools\_mutate.ps1` reverted the re-seat and the whole project stayed green: m7 159,
+   * m6 180. A prober for a known bug, sitting in a diagnostic, is not coverage — so both
+   * are now wired in here, where a red run fails the build.
+   *
+   * H12 is the one that matters and it is an A/B: two identical worlds, one loaded train
+   * standing still in each, and one press of X between them. Measured with the bug in
+   * place, stability 1 and 3 aboard became 0.875 and 2 aboard with nobody touching the
+   * throttle.
+   */
+  for (const seed of [5, 555]) {
+    const rf = recoverFuzz(seed);
+    ok(`H10.${seed} X pressed at every bad moment raises no error`, !rf.threw,
+       rf.threw && String(rf.threw).split('\n')[0]);
+    eq(`H11.${seed} and violates no invariant`, rf.violations.length, 0,
+       JSON.stringify(rf.violations.slice(0, 2)));
+    note(`      seed ${seed}: ${rf.presses} presses of X, ${rf.recovered} un-stuck something, ` +
+         `${rf.delivered} delivered, ${rf.spills} spills (${rf.spillsAfterRecover} within 2 steps of a recover)`);
+  }
+  const probe = recoverSpillProbe();
+  ok('H12.pre the isolated probe really set up a loaded train, so the A/B is not vacuous',
+     probe.withX.ok && probe.withoutX.ok && probe.withX.before.aboard > 0 &&
+     Math.abs(probe.withX.speedBefore) < 0.01,
+     `${probe.withX.why || probe.withoutX.why || ''} aboard=${probe.withX.ok && probe.withX.before.aboard}, ` +
+     `speed=${probe.withX.ok && probe.withX.speedBefore}`);
+  eq('H12 one press of X sheds nothing from a train standing perfectly still',
+     probe.spilledOnRecover, 0,
+     `with X: ${JSON.stringify(probe.withX.after)}  without: ${JSON.stringify(probe.withoutX.after)}`);
+  if (probe.withX.ok) {
+    note(`      wedged train, X vs no X: aboard ${probe.withoutX.after.aboard} -> ` +
+         `${probe.withX.after.aboard}, stability ${probe.withoutX.after.stability} -> ` +
+         `${probe.withX.after.stability}`);
+  }
 }
 
 /* ── I. GDD requirements a conformance pass found missing ────────────────── */

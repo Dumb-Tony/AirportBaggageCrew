@@ -115,6 +115,32 @@ function fnBody(src) {
 function sectionA() {
 lines.push('--- A. the schedule is a pure function of the clock (GDD 5, 31.1.7) ---');
 {
+  /*
+   * ⚠ THE AUTHORED SHIFT SIZE, AGAINST THE GDD'S OWN NUMBERS RATHER THAN AGAINST ITSELF.
+   *
+   * §20.2 authors 40-60 bags in a shift and §20.4 authors 14-18 per flight. Every assertion
+   * about the bag count in this project derived its expectation FROM `bagCount` — m6 A9 is
+   * `eq(bags emitted, FLIGHT_DEFS.reduce(sum of bagCount))`, which is a statement about the
+   * conveyor and says nothing whatever about the size of the shift. `tools\_mutate.ps1` set
+   * all three flights to 11 bags — 33 total, outside both ranges, and a shift a careless
+   * crew finishes in credit — and m0 (126), m3 (109) and m6 (180) all stayed green.
+   *
+   * The count has moved three times (50 -> 34 -> 42 -> 51) and each move was a measured
+   * balance decision with a table behind it in the README. These two assertions do not
+   * second-guess that; they pin the DESIGN RANGE the decisions have to stay inside, so the
+   * next retune fails a test that names the section it is breaking.
+   */
+  const authoredTotal = FLIGHT_DEFS.reduce((n, f) => n + f.bagCount, 0);
+  ok('A0 the authored shift is inside GDD §20.2\'s 40-60 bags',
+     authoredTotal >= 40 && authoredTotal <= 60,
+     `${authoredTotal} bags across ${FLIGHT_DEFS.length} flights`);
+  for (const f of FLIGHT_DEFS) {
+    ok(`A0b.${f.number} carries GDD §20.4's 14-18 bags`,
+       f.bagCount >= 14 && f.bagCount <= 18, `${f.bagCount}`);
+  }
+  note(`      authored: ${FLIGHT_DEFS.map((f) => `${f.number} ${f.bagCount}`).join(', ')} ` +
+       `= ${authoredTotal} bags`);
+
   const t = FLIGHT_DEFS[0].times;
 
   eq('A1 before acceptance a flight is merely scheduled', stateAt(t, 0), 'SCHEDULED');
