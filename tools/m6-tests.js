@@ -986,6 +986,140 @@ lines.push('--- I. GDD §24.3 recover, §23.1 onboarding flag, §20.2 priority p
   board.destroy(); root.remove();
 }
 
+/* ── J. the instrument reads the game and never writes to it ─────────────── */
+/*
+ * EVERY BALANCE NUMBER IN THIS SUITE AND IN `_balance.js` RESTS ON ONE LINE: `CrewBot`
+ * reads state and presses keys, and never writes to it. CLAUDE.md states that as a rule
+ * and until this section existed nothing checked it. A bot that nudged a bag into reach,
+ * or cached a route ON a cart, would stop being a measurement and become a second, worse
+ * implementation of the game — and it would do that with every assertion above still
+ * green, because the shift it produced would still look played.
+ *
+ * Two independent checks, because each misses what the other catches:
+ *
+ *   1. A DEEP SNAPSHOT either side of `bot.step()`, sampled once per simulated second
+ *      through a whole live shift so every phase of the decision tree runs against a real
+ *      state. It walks the entire state graph rather than `describe()` — a write to a
+ *      field `describe()` omits is exactly the kind this is for — but it cannot see a
+ *      write of an identical value, or one JSON does not carry.
+ *   2. A DEEP FREEZE at three checkpoints. ES modules are strict mode, so an assignment
+ *      to a frozen object THROWS instead of failing silently. That catches what a snapshot
+ *      cannot: a same-value write, a push onto an array, a new key on an existing object.
+ *
+ * Both are guarded against passing VACUOUSLY, which is the failure mode this hardening
+ * pass exists to remove — a bot that pressed nothing would never write to anything
+ * either. So J1 asserts the probe watched a live shift, J1b that the crew was really
+ * playing it, J3 that each frozen checkpoint was actually reached, and J6 that the bot
+ * pressed real keys while the state under it was frozen.
+ */
+function deepSnap(root) {
+  const seen = new Set();
+  const walk = (v) => {
+    if (v === null || typeof v !== 'object') return typeof v === 'function' ? '<fn>' : v;
+    if (seen.has(v)) return '<seen>';
+    seen.add(v);
+    if (Array.isArray(v)) return v.map(walk);
+    const out = {};
+    for (const k of Object.keys(v)) out[k] = walk(v[k]);
+    return out;
+  };
+  return JSON.stringify(walk(root));
+}
+
+function deepFreeze(v, seen = new Set()) {
+  if (v === null || typeof v !== 'object' || seen.has(v)) return v;
+  seen.add(v);
+  Object.freeze(v);
+  for (const k of Object.keys(v)) deepFreeze(v[k], seen);
+  return v;
+}
+
+/** Where two snapshots first disagree, with enough either side to name the field. */
+function firstDiffOf(a, b) {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  const from = Math.max(0, i - 70);
+  return `char ${i}\n        was: ...${a.slice(from, i + 30)}\n        now: ...${b.slice(from, i + 30)}`;
+}
+
+function sectionJ() {
+  lines.push('--- J. the instrument reads the game and never writes to it ---');
+
+  const FRAME = CONFIG.sim.stepMs;
+  const cap = Math.ceil(900000 / FRAME);
+
+  /* 1. the sampled snapshot, over a whole shift the bot really plays */
+  const g = newGame(12345);
+  const input = new Input(window);
+  const bot = new CrewBot('average');
+  const SAMPLE_EVERY = 60;                            // once per simulated second
+  g.startShift();
+  let frames = 0, samples = 0, dirty = 0, firstDiff = '';
+  while (frames < cap && !g.state.shift.ended) {
+    if (frames % SAMPLE_EVERY === 0) {
+      const before = deepSnap(g.state);
+      bot.step(g, input, FRAME);
+      const after = deepSnap(g.state);
+      samples++;
+      if (before !== after) {
+        dirty++;
+        if (!firstDiff) firstDiff = `${(g.state.simTimeMs / 1000).toFixed(1)}s, ${firstDiffOf(before, after)}`;
+      }
+    } else {
+      bot.step(g, input, FRAME);
+    }
+    g.frame(FRAME, input);
+    frames++;
+  }
+  const flights = Object.values(g.state.flightsById);
+  const owed = flights.reduce((n, f) => n + f.expectedCount, 0);
+  const correct = flights.reduce((n, f) => n + f.outcome.correct, 0);
+
+  ok('J1 the probe watched a whole live shift rather than a stalled one',
+     samples >= 300 && g.state.shift.ended, `${samples} samples, ended=${g.state.shift.ended}`);
+  ok('J1b ...and the crew was really playing it, so the decision tree actually ran',
+     correct > 0, `${correct} of ${owed} delivered`);
+  ok('J2 not one sampled bot.step() changed the game state',
+     dirty === 0, `${dirty} of ${samples} samples mutated state — first at ${firstDiff}`);
+  note(`${samples} sampled bot.step() calls across ${(g.state.simTimeMs / 1000).toFixed(0)}s of play, ` +
+       `${correct}/${owed} delivered, ${dirty} mutations`);
+
+  /* 2. the deep freeze, at three points in the shift with different work in hand */
+  let pressesTotal = 0;
+  for (const atSec of [45, 240, 480]) {
+    const fg = newGame(12345);
+    const fi = new Input(window);
+    const realPress = fi._debugPress.bind(fi);
+    const realRelease = fi._debugRelease.bind(fi);
+    let presses = 0;
+    fi._debugPress = (code) => { presses++; realPress(code); };
+    fi._debugRelease = (code) => { presses++; realRelease(code); };
+    const fb = new CrewBot('average');
+    fg.startShift();
+    let f = 0;
+    while (f < cap && fg.state.simTimeMs < atSec * 1000 && !fg.state.shift.ended) {
+      fb.step(fg, fi, FRAME);
+      fg.frame(FRAME, fi);
+      f++;
+    }
+    ok(`J3.${atSec}s the ${atSec}s checkpoint was reached, so the freeze is not vacuous`,
+       fg.state.simTimeMs >= atSec * 1000, `stopped at ${(fg.state.simTimeMs / 1000).toFixed(1)}s`);
+
+    deepFreeze(fg.state);
+    presses = 0;
+    let threw = '';
+    try { for (let k = 0; k < 60; k++) fb.step(fg, fi, FRAME); }
+    catch (e) { threw = (e && e.stack) || String(e); }
+    ok(`J4.${atSec}s a simulated second of bot.step() against a DEEP-FROZEN state throws nothing`,
+       !threw, threw);
+    pressesTotal += presses;
+  }
+  ok('J6 the bot pressed real keys while the state under it was frozen',
+     pressesTotal > 0, `${pressesTotal} key edges across the three checkpoints`);
+  note(`the frozen probe pressed ${pressesTotal} key edges — a bot that pressed none would ` +
+       'pass J4 by doing nothing at all');
+}
+
 /* ── Z. what a suite cannot close ────────────────────────────────────────── */
 function sectionZ() {
 lines.push('--- Z. GDD §29 criteria that need people, not a test runner ---');
@@ -1007,7 +1141,7 @@ lines.push('--- Z. GDD §29 criteria that need people, not a test runner ---');
 (async () => {
   const sections = [
     ['A', sectionA], ['B', sectionB], ['C', sectionC], ['D', sectionD],
-    ['E', sectionE], ['F', sectionF], ['H', sectionH], ['I', sectionI], ['G', sectionG], ['Z', sectionZ],
+    ['E', sectionE], ['F', sectionF], ['H', sectionH], ['I', sectionI], ['J', sectionJ], ['G', sectionG], ['Z', sectionZ],
   ];
   for (const [name, fn] of sections) {
     emit(`RUNNING section ${name}...`);

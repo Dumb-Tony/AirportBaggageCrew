@@ -1462,3 +1462,62 @@ If the answer to these remains yes, the game can scale from a tiny regional bagg
 ## 34. One-Sentence North Star
 
 > **Airport Baggage Crew is a game where simple physical work becomes hilarious logistical panic because the airport keeps operating whether the players are ready or not.**
+
+---
+
+## 35. Milestone 10 — The Suites Are Tested Too
+
+**Authored after the fact (2026-08-24), like §28.5 below it.** §28's roadmap ends at
+Milestone 6 and this milestone comes from a specific finding rather than from a plan: the
+2026-08-21 meta-audit read all nine suites and found roughly twenty assertions that could
+not fail, plus one structural hole — a green suite never proved how many assertions RAN.
+The count baseline closed the structural half. **This milestone closes the other half, and
+it closes it by measurement instead of by reading.**
+
+### 35.1 The problem with auditing a test by reading it
+
+Every hole the meta-audit found was found by eye, four agents deep, and the process caught
+its own author twice more afterwards — the m9 `E5` assertion tested the labels in the
+audit's own table rather than anything the game renders, and the m6 claim that `CrewBot`
+never writes to state was written down as a rule in `CLAUDE.md` and checked by nothing.
+Reading is not a reliable instrument for this. An assertion that cannot fail *looks
+exactly like one that can*, and the ones that survive review are by definition the ones
+that read most convincingly.
+
+There is a direct measurement available, and it is the standard one: **break the code on
+purpose and see whether the suite notices.** A mutation that leaves the suite green is a
+hole, named, with the file and line already in hand.
+
+### 35.2 What gets built
+
+`tools\_mutate.ps1` — a mutation harness over a **table of deliberate reversions of real
+fixes**, not of random operators. Every entry is a bug this project actually shipped or
+nearly shipped, expressed as a one-line source substitution:
+
+- the degenerate separation normal that threw a bag 181 km
+- separation shoving a bag through the sort-room wall
+- `recoverStuck` not re-seating the train
+- each of the three renderer depth-sort bugs
+- the clock running behind the title screen
+- the camera readability floor
+- the priority-bag penalty
+- the signal-separation threshold in the accessibility audit
+
+For each: apply, **verify the substitution matched exactly once**, run the suite, record
+which assertions went red, restore the file. A mutation that matched zero times is
+reported as an ERROR, never as a result — a substitution that silently did nothing is the
+same disease this milestone exists to cure, worn as a tool.
+
+### 35.3 Completion criteria (all measurable)
+
+1. The harness runs a table of at least twelve mutations and restores every file it
+   touched, including on a crash or an interrupt.
+2. Every mutation is verified to have applied before its suite is run; a no-match is an
+   error and fails the run.
+3. Each mutation is reported **KILLED** with the assertion ids that caught it, or
+   **SURVIVED** with the file it was made in.
+4. Every survivor is either closed with a new assertion in the same commit, or recorded in
+   this document with the reason it is allowed to survive.
+5. The harness refuses to start on a dirty working tree, so a crash can never be confused
+   with a source edit.
+6. The kill rate is stated as a number in the README, not described as good.

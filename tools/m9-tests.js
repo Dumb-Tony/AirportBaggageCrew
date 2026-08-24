@@ -37,6 +37,8 @@ import { createBag } from '../src/entities/bag.js';
 import { Rng } from '../src/core/rng.js';
 import { ScannerCard } from '../src/ui/scannerCard.js';
 import { Renderer } from '../src/render/renderer.js';
+import { FlightBoard } from '../src/ui/flightBoard.js';
+import { Game } from '../src/game.js';
 import {
   parseColour, toHex, composite, flatten, withOpacity,
   relativeLuminance, contrastRatio, isLargeText, requiredRatio,
@@ -357,11 +359,52 @@ function sectionE() {
      /HOLD OPEN/.test(aircraftSrc) && /HOLD CLOSED/.test(aircraftSrc),
      aircraftSrc.match(/'HOLD [A-Z]+'/g)?.join(' ') || 'no hold text found');
 
-  // Board: the status word is its own column, so the rail colour is never alone.
-  const boardGroup = SIGNAL_GROUPS.find((g) => g.id === 'board-status');
-  ok('E5 every board status colour is labelled with the words a player reads',
-     boardGroup.colours(cssTokens(window)).every((c) => /[A-Z]/.test(c.label)),
-     boardGroup.colours(cssTokens(window)).map((c) => c.label).join(','));
+  /*
+   * ⚠ THE BOARD, READ OFF A LIVE BOARD — AND THIS ASSERTION USED TO BE A LIE.
+   *
+   * It was `boardGroup.colours(...).every(c => /[A-Z]/.test(c.label))`: it tested that the
+   * labels in `SIGNAL_GROUPS` — strings written in the audit's own table, never read from
+   * the game — contain a capital letter. The flight board could stop rendering status
+   * words entirely and it would still have passed. That is exactly the disease the suite
+   * meta-audit found elsewhere, reintroduced by the person who fixed it.
+   *
+   * A real board, driven over a whole shift so every status is reached, and the words are
+   * read out of its DOM.
+   */
+  const boardHost = document.createElement('div');
+  document.body.appendChild(boardHost);
+  const board = new FlightBoard(boardHost);
+  const bg = new Game({ seed: 4242, seedLabel: 'a11y-board' });
+  bg.startShift();
+  const wordsSeen = new Set();
+  let bframes = 0;
+  while (bframes++ < 60 * 900 && !bg.state.shift.ended) {
+    bg.frame(1000 / 60, null);
+    if (bframes % 30) continue;                       // twice a second is plenty
+    board.update(bg.state);
+    const txt = (board.el.textContent || '').toUpperCase();
+    for (const w of ['SCHEDULED', 'ACCEPTING', 'LOADING', 'FINAL', 'CLOSED', 'PUSHING', 'DEPARTED']) {
+      if (txt.includes(w)) wordsSeen.add(w);
+    }
+  }
+  boardHost.remove();
+  note(`board rendered these status words over a shift: ${[...wordsSeen].sort().join(', ')}`);
+  ok('E5 the board spells its status out in words, not only in a colour',
+     wordsSeen.size >= 4, `${wordsSeen.size} distinct status words: ${[...wordsSeen].join(',')}`);
+  ok('E5b2 ...including the two whose colours collapse for a deuteranope',
+     wordsSeen.has('LOADING') && (wordsSeen.has('CLOSED') || wordsSeen.has('FINAL')),
+     [...wordsSeen].join(','));
+
+  /*
+   * THE LOOPHOLE CANARY. Section D lets a colour pair that COLLAPSES pass when its group
+   * declares a `redundancy`, and the only thing making that honest is that section E
+   * verifies each declaration against the shipped game. A fifth group added later would
+   * inherit the free pass and nothing would notice — so pin the set.
+   */
+  const covered = ['flight-tags', 'board-status', 'scanner-verdict', 'hold-state'];
+  const ids = SIGNAL_GROUPS.map((g) => g.id).sort();
+  eq('E5f every signal group is one section E actually verifies',
+     ids.join(','), covered.slice().sort().join(','));
 
   /*
    * THE FLOOR SURFACES ARE NOT A CHANNEL, AND THAT IS WHY THE LANE LINES MAY BE FAINT.
