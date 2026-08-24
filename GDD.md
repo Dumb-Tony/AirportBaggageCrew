@@ -1723,3 +1723,143 @@ which is a sweep of its own and the third time that number would have moved.
 
 So this milestone answers its question and hands the next one a specific job, with the table
 above as its starting point. §36.3 anticipated exactly this branch.
+
+---
+
+## 37. Milestone 12 — The Skill Ladder Is Not A Ladder
+
+**Authored after the fact (2026-08-24), from what §36 turned up on its way past.** §36.5
+hands the next milestone the bag count. That job is real, and it is second: the instrument
+that would measure it has a defect that makes every difficulty claim in this project
+suspect, and re-sweeping the shift size before fixing it would be the third time a tuning
+sweep was taken on a broken instrument.
+
+### 37.1 The defect
+
+`tools\_bot.js` defines three crews:
+
+| | reactionMs | lookaheadMs | haulAt |
+|---|---|---|---|
+| novice | 900 | 0 | **10** |
+| average | 380 | 45 000 | **8** |
+| veteran | 90 | 110 000 | **6** |
+
+Two of those columns get better as skill rises. The third encodes a **belief** — that a
+better player does not wait around for a full cart — and the belief is false in this game.
+Measured (`tools\_corner.js`, flat out, median of three seeds):
+
+| | delivered | points | driven |
+|---|---|---|---|
+| novice | 47% | −1850 | 782 m |
+| average | **86%** | **+3450** | 1580 m |
+| veteran | 59% | −700 | **2204 m** |
+
+**The veteran drives 40% further than the average crew and delivers 27 points fewer.** It
+hauls at six bags, so it makes more trips; a trip is the expensive thing in this game (90%
+of missed bags are still sitting in a cart) and the extra trips do not pay for themselves.
+
+So "veteran" measures *fast reactions plus a worse haul policy*, and the two are confounded
+inside one preset. The README has carried this as a curiosity since M6 — "the veteran
+profile scores WORSE than average" — and treated it as a finding about the game. It is a
+finding about the bot.
+
+⚠ **This matters beyond tidiness.** Every difficulty claim the project makes is a
+comparison between these presets, `m6 D3`/`D5`/`D6` gate on them, and the bag count was
+chosen by looking at all three. A ladder whose top rung is below its middle one cannot
+support any of that.
+
+### 37.2 What gets built
+
+1. **The three axes swept independently**, each holding the other two fixed, so the
+   contribution of reaction time, lookahead and haul threshold are separately known
+   instead of assumed. `haulAt` is the one under suspicion and gets the full sweep
+   (6, 7, 8, 9, 10, and cart capacity) across three seeds.
+2. **The presets rebuilt** from what the sweep says, so that more skill produces a better
+   outcome — with any axis that turns out not to matter recorded as not mattering rather
+   than kept for appearances.
+3. **The ladder asserted**, not just fixed: `m6` gains a check that delivery and points are
+   monotonically non-decreasing from novice to veteran. That is a claim about the
+   INSTRUMENT and it belongs in a suite, because the balance assertions around it are
+   worthless without it.
+4. Only then, the bag count re-swept against the corrected crews — §36.5's job, done with
+   an instrument that is not lying about its top rung.
+
+### 37.3 Completion criteria (all measurable)
+
+1. Each axis swept independently across at least three seeds, with the per-axis effect
+   stated as a number.
+2. The optimal `haulAt` stated as a number, and the presets justified against it.
+3. Delivery and points non-decreasing novice → average → veteran, asserted in `m6`.
+4. If an axis turns out not to affect the outcome, that is written down with its numbers
+   rather than quietly preserved — a preset field nothing measures is a preset field that
+   should not exist.
+5. The bag count re-swept against the rebuilt crews, and either changed with a table behind
+   it or explicitly confirmed at 51.
+6. `tools\_mutate.ps1` gains a mutation for the ladder assertion, so a preset edit that
+   breaks monotonicity cannot land green.
+
+### 37.4 What it found — 2026-08-24
+
+#### One axis of three did nothing at all
+
+`tools\_axes.js` swept each axis with the other two pinned at the average preset, three
+seeds a cell, median points:
+
+| axis | sweep | verdict |
+|---|---|---|
+| `haulAt` | 4:1300 · 5:1550 · 6:2300 · 7:2800 · **8:3450** · 9:1450 · 10:1450 | real, peak at 8 |
+| `lookaheadMs` | 0s:1950 · **45s:3450** · 110s:700 · 200s:−5050 | real, peak at 45 s |
+| `reactionMs` | 90:3450 · 380:3450 · 900:3450 · 1800:3450 | **nothing** |
+
+**`reactionMs` returned four byte-identical shifts across a 20× range** — same delivery,
+same points, same metres walked, same spills. It gated exactly one thing: the SCAN key.
+GDD §7.1's scanner reports and never vetoes, so nothing downstream of a scan can change,
+and the field could not affect an outcome by construction. It has been in the presets since
+M6 looking like a model of hesitation.
+
+Per §37.3 criterion 4 it is recorded rather than quietly kept: renamed to **`scanGapMs`**,
+which is what it actually controls, with the sweep in the comment. **Dithering before
+committing to a job is not modelled by this bot** — if it ever should be, it belongs on the
+phase decision and not on the scanner.
+
+#### Both real axes have an interior optimum, and the presets bracketed it
+
+That is why the ladder was a hill. `haulAt` went 10 → 8 → 6 as skill *rose*, so the average
+crew sat exactly on the peak and both neighbours were detuned in opposite directions — the
+novice idling 272 s a shift waiting for a tenth bag, the veteran driving 2204 m to make
+extra trips. Neither is *less skilled*; they are two different kinds of wrong.
+
+Cut from the measured grid, each rung now differs from the next by exactly one thing a
+player could learn:
+
+| | lookaheadMs | haulAt | delivered | points |
+|---|---|---|---|---|
+| novice | 0 | 10 | 47% | −1850 |
+| average | 0 | 8 | 75% | +1950 |
+| veteran | 45 000 | 8 | 86% | +3450 |
+
+novice → average learns to fill the cart before setting off; average → veteran learns to
+read the board. `m6 D14`/`D14b`/`D14c` assert the ordering and the spread, because every
+other balance claim in that suite assumes it.
+
+#### The shift stays at 51 — confirmed, not assumed
+
+Re-swept against the rebuilt crews (`tools\_bagsweep.ps1`, mean of three seeds):
+
+| per flight | total | novice | average | veteran | dead ends |
+|---|---|---|---|---|---|
+| 15 | 45 | 61% / −17 | 81% / +2667 | 83% / +2800 | 0 |
+| 16 | 48 | 48% / −1583 | 86% / +3317 | 80% / +2617 | 1 |
+| **17** | **51** | **48% / −1583** | **76% / +2100** | **85% / +3350** | **0** |
+| 18 | 54 | 53% / −1200 | 75% / +2050 | 84% / +3517 | 1 |
+
+17 wins on every criterion: zero dead ends (§29 is a rule, so 16 and 18 are out on it
+alone), a careless crew still in debt at −1583 where 15 leaves it at −17 and effectively
+breaking even, and the best veteran score of the eligible pair.
+
+⚠ **A fourth criterion came out of this sweep and it was not anticipated: THE LADDER'S
+ORDERING IS COUNT-DEPENDENT.** At 16 a flight the average crew beats the veteran, 86%
+against 80% — the same inversion this whole milestone exists to remove, reappearing from
+the shift size alone. So the presets are not a fixed property of the bot; they are a
+property of the bot *and* the shift it plays, and `m6 D14` has to be re-run whenever the
+count moves. `_bagsweep.ps1` now prints that check per row.

@@ -14,16 +14,19 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass, an audit of the tests
-themselves, and a mutation pass that tested the audit. 1383 assertions green across ten
-suites, and 15 of 15 deliberate bugs get caught.**
+themselves, a mutation pass that tested the audit, and a balance pass that found the
+difficulty ladder was upside down. 1388 assertions green across ten suites, and 16 of 16
+deliberate bugs get caught.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
 with a report telling you exactly what you managed, and a button to try again.
 
-A competent crew clears **85%** of the shift and finishes on +3350; a careless one clears
-48% and goes backwards. Every number behind that was measured by a bot playing through the
-real keyboard path rather than guessed.
+A crew that has learned the job clears **85%** of the shift and finishes on +3350; one that
+has not clears 48% and goes backwards, and a middling one lands at 76% and +2100. Every
+number behind that was measured by a bot playing through the real keyboard path rather than
+guessed — and those three rungs were **not in that order** until 2026-08-24, which is a
+story further down.
 
 The shift **used to be thirty-four bags**, which broke the GDD's own stated range of
 40–60, and it is fifty-one now — seventeen per flight, inside §20.4's range as well. It
@@ -81,6 +84,55 @@ one class of thing, render again, and count the pixels that changed. Removing th
 from the belt changes 1127 pixels now and changed 0 before. It is the same trick for the
 cart load, for the depth sort, and for whether GDD §16.6's text-size setting reaches the
 canvas — where there is no CSS cascade, so each font has to scale by hand.
+
+## The skill ladder was a hill
+
+For six milestones this project measured difficulty by comparing three bot crews — and the
+"veteran" delivered **59%** where the "average" crew delivered **86%**. That sat in this
+README as a curiosity about the game: *the veteran hauls at six bags instead of eight and
+spends the difference driving.* The observation was exactly right. The conclusion was
+attached to the wrong object: it was a fact about the preset table, not about the airport.
+
+`tools\_axes.js` swept each axis with the other two pinned, three seeds a cell:
+
+| axis | sweep (median points) | |
+|---|---|---|
+| `haulAt` | 4:1300 · 5:1550 · 6:2300 · 7:2800 · **8:3450** · 9:1450 · 10:1450 | peak at 8 |
+| `lookaheadMs` | 0s:1950 · **45s:3450** · 110s:700 · 200s:−5050 | peak at 45 s |
+| `reactionMs` | 90:3450 · 380:3450 · 900:3450 · 1800:3450 | **nothing at all** |
+
+Both real axes have an **interior optimum**, and the presets bracketed it: `haulAt` went
+10 → 8 → 6 as skill *rose*, so the average crew sat exactly on the peak and both of its
+neighbours were detuned in opposite directions — the novice idling 272 s a shift waiting
+for a tenth bag, the veteran driving 2204 m to make the extra trips. Neither is less
+skilled than the other. They are two different kinds of wrong, and one of them was labelled
+"veteran".
+
+**The third column did nothing whatsoever.** `reactionMs` returned four byte-identical
+shifts across a twentyfold range — same delivery, same points, same metres walked, same
+spills — because the only key it gated was the scanner, and the scanner reports without
+ever vetoing. It could not affect an outcome by construction, and it had been sitting in
+the presets since Milestone 6 looking like a model of hesitation. It is renamed to
+`scanGapMs`, which is what it controls; hesitation is simply not modelled.
+
+The rungs are re-cut from the measured grid so each differs from the next by exactly one
+thing a player could learn:
+
+| | reads the board | leaves with | delivered | points |
+|---|---|---|---|---|
+| novice | no | 10 bags | 47% | −1850 |
+| average | no | 8 bags | 75% | +1950 |
+| veteran | yes | 8 bags | 86% | +3450 |
+
+Then the shift size was re-derived under the fixed crews and **confirmed at 51** — 16 and
+18 bags a flight reintroduce dead ends, and 15 leaves a careless crew at −17, which is
+break-even rather than the debt the design calls for.
+
+⚠ One thing came out of that sweep that nobody was looking for: **the ordering is
+count-dependent.** At sixteen bags a flight the average crew beats the veteran again, 86%
+against 80% — the exact inversion this work existed to remove, reappearing from the shift
+size alone. So the presets are not a property of the bot; they are a property of the bot
+*and* the shift it plays, and the ladder check has to be re-run whenever the count moves.
 
 ## Colour is never the only channel, and now that is a number
 
@@ -191,7 +243,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-### And the suites are tested too — 15 of 15 mutations killed
+### And the suites are tested too — 16 of 16 mutations killed
 
 ```bash
 tools\_mutate.ps1
@@ -245,7 +297,7 @@ ERROR and never a result — a find string that silently matched nothing would r
 suite green and read as a flawless run. And restore is byte-exact, runs in a `finally`, and
 the run ends by asking git whether the files it touched came back.
 
-All 1383 assertions also pass under Edge:
+All 1388 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -317,12 +369,13 @@ monetisation.
 | 3 | Sacred schedule — flight states, board, departures | **done** — 113 assertions |
 | 4 | Outcomes and pressure — scoring, report, replay | **done** — 131 assertions |
 | 5 | Onboarding and juice — audio, hints, accessibility | **done** — 197 assertions |
-| 6 | Balance and hardening | **done** — 188 assertions |
+| 6 | Balance and hardening | **done** — 193 assertions |
 | — | Hardening: four adversarial audits, and the coverage they exposed | **done** — 159 assertions |
 | — | The renderer draws what it claims: differential pixel checks | **done** — 38 assertions |
 | — | Colour is never the only channel, computed rather than believed | **done** — 111 assertions |
-| 10 | The suites are tested too — mutation testing (GDD §35) | **done** — 15/15 killed |
+| 10 | The suites are tested too — mutation testing (GDD §35) | **done** — 16/16 killed |
 | 11 | Is cornering a decision? (GDD §36) | **done** — answered: yes, for the veteran |
+| 12 | The skill ladder is not a ladder (GDD §37) | **done** — rebuilt, 51 bags confirmed |
 
 ### Phase 1 acceptance (GDD §29)
 
@@ -387,8 +440,9 @@ through the real input path, three seeds each:
 
 | | |
 |---|---|
-| A competent crew | 85% of bags delivered, +3350 points (mean of 3 seeds) |
-| A careless one | 48%, −1583 points (mean of 3 seeds) |
+| A crew that knows the job | 85% of bags delivered, +3350 points (mean of 3 seeds) |
+| A middling one | 76%, +2100 points |
+| A careless one | 48%, −1583 points |
 | Before the M6 balance pass | 32% and −4000 points, on every seed, at every skill |
 | The authored shift | 51 bags across 3 flights (17 each), 11:32 |
 | Time to first bag aboard | 140 s |

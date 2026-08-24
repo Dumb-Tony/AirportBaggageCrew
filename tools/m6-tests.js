@@ -602,6 +602,39 @@ lines.push('--- D. GDD §29 Quality: a shift somebody played ---');
      'few seconds is noise rather than an odd statistic');
   note(`      §11.3 over a played shift: ${hardCorners} hard corners, ${spilled} spills ` +
        `(${(hardCorners / Math.max(1, spilled)).toFixed(1)}x)`);
+
+  /*
+   * ⚠ THE LADDER HAS TO BE A LADDER, AND FOR SIX MILESTONES IT WAS A HILL (GDD §37).
+   *
+   * Every difficulty claim this suite makes is a comparison between the three `SKILLS`
+   * presets — D3 and D4 read the average crew, D5 and D6 read the novice — and the whole
+   * bag count was chosen by looking at all three. None of that means anything if the
+   * presets are not ordered. They were not: the veteran delivered 59% against the average
+   * crew's 86%, and the README carried it for two milestones as a curiosity about the
+   * GAME rather than about the table.
+   *
+   * `tools\_axes.js` found why. Both axes that matter have an INTERIOR optimum, and the
+   * presets bracketed it — `haulAt` went 10 → 8 → 6 as skill rose, so the average crew sat
+   * exactly on the peak and its neighbours were detuned in opposite directions. A third
+   * column, `reactionMs`, returned byte-identical shifts across a 20x range because the
+   * only thing it gated was the scanner, which by GDD §7.1 reports without vetoing.
+   *
+   * So this asserts the property the rest of section D assumes. It is deliberately about
+   * ORDER and not about values: the numbers move whenever the game is tuned, and a rung
+   * that overtakes the one above it is a broken instrument whichever way it happened.
+   */
+  const ladder = SKILL_ORDER.map((s) => ({ skill: s, pct: med(s, 'pct'), points: med(s, 'points') }));
+  for (let i = 1; i < ladder.length; i++) {
+    const lo = ladder[i - 1], hi = ladder[i];
+    ok(`D14.${lo.skill}<${hi.skill} more skill delivers at least as much of the shift`,
+       hi.pct >= lo.pct, `${lo.skill} ${lo.pct}% vs ${hi.skill} ${hi.pct}%`);
+    ok(`D14b.${lo.skill}<${hi.skill} ...and scores at least as well`,
+       hi.points >= lo.points, `${lo.skill} ${lo.points} vs ${hi.skill} ${hi.points}`);
+  }
+  ok('D14c the top and bottom rungs are far enough apart for the ladder to mean anything',
+     ladder[ladder.length - 1].points - ladder[0].points > 2000,
+     `${ladder[0].points} to ${ladder[ladder.length - 1].points}`);
+  note(`      the ladder: ${ladder.map((l) => `${l.skill} ${l.pct}%/${l.points}`).join('  ->  ')}`);
 }
 
 /* ── E. §29 QUALITY: performance with 100 bags, and no stuck geometry ────── */

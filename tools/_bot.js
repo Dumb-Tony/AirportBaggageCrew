@@ -16,9 +16,10 @@
  * moment it writes a position or moves a bag it stops being a measurement. Nothing below
  * assigns to anything under `state`, and m6 asserts that by source inspection.
  *
- * `skill` scales the two things that separate a novice from a veteran: how long they
- * dither before committing (`reactionMs`) and whether they read the schedule ahead
- * (`lookaheadMs`). It does NOT scale walking speed or reach — those are the game's.
+ * `skill` scales the two things GDD §37 measured as actually mattering: how full a cart
+ * has to be before the crew sets off (`haulAt`) and whether they read the schedule ahead
+ * (`lookaheadMs`). It does NOT scale walking speed or reach — those are the game's — and
+ * it does not model hesitation at all, which the old `reactionMs` field only appeared to.
  */
 
 import { CONFIG } from '../src/config.js';
@@ -75,10 +76,41 @@ const VERB_GAP_MS = 145;
  * So the answer to the README's question is measured rather than assumed, and it is no.
  */
 
+/*
+ * ⚠ THE PRESETS WERE NOT A LADDER, AND TWO OF THE THREE COLUMNS WERE LYING (GDD §37).
+ *
+ * They used to read `reactionMs 900/380/90`, `lookaheadMs 0/45000/110000`,
+ * `haulAt 10/8/6` — and the veteran delivered 59% against the average crew's 86%, which
+ * the README carried for two milestones as a curiosity about the GAME. It was a
+ * curiosity about this table. `tools\_axes.js` swept each axis with the other two pinned:
+ *
+ *   haulAt        4:1300  5:1550  6:2300  7:2800  8:3450  9:1450  10:1450   <- peak at 8
+ *   lookaheadMs   0s:1950   45s:3450   110s:700   200s:-5050              <- peak at 45s
+ *   reactionMs    90:3450  380:3450  900:3450  1800:3450                  <- NO EFFECT
+ *
+ * Both real axes have an INTERIOR optimum and the old presets bracketed it: `haulAt` went
+ * 10 → 8 → 6 as skill rose, so the average crew sat exactly on the peak and both of its
+ * neighbours were detuned in opposite directions. The ladder was a hill.
+ *
+ * `reactionMs` did nothing at all — a 20x range returning byte-identical shifts — because
+ * the only thing it gated was the SCAN key, and GDD §7.1's scanner reports without ever
+ * vetoing. It could not affect an outcome by construction. It is renamed to what it
+ * actually is; see `scanGapMs` below.
+ *
+ * The rungs below are cut from the measured grid (`_axes.js` section 4) so that each one
+ * differs from the next by exactly ONE thing a player could learn:
+ *
+ *   novice  → average   learns to fill the cart before setting off   47% → 75%
+ *   average → veteran   learns to read the board                     75% → 86%
+ *
+ * Medians of three seeds: −1850, +1950, +3450 points. Do not "improve" a rung without
+ * re-running `_axes.js`; m6 D14 asserts the ordering and will catch it, but the sweep is
+ * what says which direction is up.
+ */
 export const SKILLS = Object.freeze({
-  novice:  { reactionMs: 900, lookaheadMs: 0,      haulAt: 10, label: 'novice' },
-  average: { reactionMs: 380, lookaheadMs: 45000,  haulAt: 8,  label: 'average' },
-  veteran: { reactionMs: 90,  lookaheadMs: 110000, haulAt: 6,  label: 'veteran' },
+  novice:  { scanGapMs: 900, lookaheadMs: 0,     haulAt: 10, label: 'novice' },
+  average: { scanGapMs: 380, lookaheadMs: 0,     haulAt: 8,  label: 'average' },
+  veteran: { scanGapMs: 90,  lookaheadMs: 45000, haulAt: 8,  label: 'veteran' },
 });
 
 /*
@@ -119,7 +151,22 @@ void OVERLOAD_THRESHOLD_MS;           // documented beside its twin so the two c
 
 export class CrewBot {
   constructor(skill = 'average', opts = {}) {
-    this.skill = SKILLS[skill] || SKILLS.average;
+    /*
+     * GDD §37 — THE AXES HAVE TO BE SEPARABLE OR THEY CANNOT BE MEASURED.
+     *
+     * A preset bundles three independent things: how fast the crew commits
+     * (`scanGapMs`), whether it reads the schedule ahead (`lookaheadMs`), and how full a
+     * cart has to be before it leaves (`haulAt`). Two of those get better as skill rises
+     * and the third encodes a BELIEF — that a better player does not wait for a full cart
+     * — which is false in this game and was never tested, because nothing could vary one
+     * axis while holding the others still. `opts.axes` is that lever, and it exists so a
+     * sweep can attribute an effect instead of guessing which column caused it.
+     *
+     * Overrides are merged over the named preset and the result is frozen, so a sweep can
+     * never accidentally mutate the shared SKILLS table between runs.
+     */
+    const base = SKILLS[skill] || SKILLS.average;
+    this.skill = opts.axes ? Object.freeze({ ...base, ...opts.axes }) : base;
     /* A POLICY AXIS, deliberately not a fourth skill. Skill is how fast a crew reacts and
      * how much it hauls; this is a different question asked of every skill level, so the
      * sweep is policy x skill rather than a list of four presets that confound the two. */
@@ -316,7 +363,21 @@ export class CrewBot {
       // bot at the belt for minutes at a time.
       if (st.player.targetBagId) {
         if (this._press(input, KEY.grab)) this.stats.bagsCarried++;
-        if (this.sinceDecisionMs > this.skill.reactionMs) {
+        /*
+         * ⚠ THIS IS A SCAN RATE, NOT A REACTION TIME, and calling it `reactionMs` for six
+         * milestones made three presets look like they modelled hesitation when they did
+         * not. It gates ONE key — Q — and GDD §7.1's scanner reports without vetoing, so
+         * nothing downstream of it can change. `tools\_axes.js` swept 90/380/900/1800 ms
+         * and got four byte-identical shifts: same delivery, same points, same metres
+         * walked, same spills. A 20x range with a zero-point spread.
+         *
+         * Kept rather than deleted because it does control something real and visible —
+         * how often the crew scans, which the telemetry reports — but named honestly, so
+         * nobody again reads a difficulty model into it. **Dithering before committing to
+         * a job is NOT modelled by this bot.** If it ever should be, it belongs on the
+         * phase decision, not on the scanner.
+         */
+        if (this.sinceDecisionMs > this.skill.scanGapMs) {
           if (this._press(input, KEY.scan)) { this.stats.scans++; this.sinceDecisionMs = 0; }
         }
       } else {
@@ -1059,6 +1120,8 @@ export function playShift(g, input, skill = 'average', maxMs = 900000, opts = {}
   return {
     skill: bot.skill.label,
     careful: bot.careful,
+    /* GDD §37: the axes actually used, so a sweep row can never be mislabelled. */
+    axes: { scanGapMs: bot.skill.scanGapMs, lookaheadMs: bot.skill.lookaheadMs, haulAt: bot.skill.haulAt },
     /* GDD §36: spills read off the GAME, not off the bot — a policy that somehow moved a
      * bag would show up here as a discrepancy rather than as a flattering number. */
     spills: Object.values(g.state.cartsById).reduce((n, c) => n + c.spills, 0),

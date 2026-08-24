@@ -149,6 +149,24 @@ Dev-wide catalog of what already exists and where to copy it from.
   novice median from −1850 to −250 and 47% to 59%, which re-opens the bag count that m6
   D5/D6 gate. That is the next milestone, not a footnote to this one. **1383 assertions.**
 
+- 2026-08-24 — **M12: THE SKILL LADDER WAS A HILL.** GDD §37. Every difficulty claim in
+  this project is a comparison between three `SKILLS` presets, and the presets were not
+  ordered — the veteran delivered 59% against the average crew's 86%, which the README
+  carried for two milestones as a curiosity about the GAME. `tools\_axes.js` swept each
+  axis with the other two pinned and found three things: **`haulAt` peaks at 8** (the
+  presets went 10 → 8 → 6 as skill ROSE, so the average crew sat on the optimum and both
+  neighbours were detuned in opposite directions); **`lookaheadMs` peaks at 45 s** and
+  collapses to −5050 points at 200 s; and **`reactionMs` did literally nothing** — four
+  byte-identical shifts across a 20× range, because the only key it gated was the scanner,
+  which by §7.1 reports without vetoing. Renamed to `scanGapMs`; hesitation is simply not
+  modelled. Rungs re-cut from the measured grid so each differs from the next by one
+  learnable thing: **novice 47%/−1850 → average 75%/+1950 → veteran 86%/+3450**, asserted
+  by m6 D14. The bag count was then re-swept against the rebuilt crews and **confirmed at
+  51** — 16 and 18 reintroduce dead ends, 15 leaves a careless crew at −17. ⚠ A fourth
+  criterion emerged unplanned: **the ladder's ordering is COUNT-DEPENDENT** — at 16 a
+  flight the average crew beats the veteran again, so the presets are a property of the bot
+  AND the shift, and D14 must be re-run whenever the count moves. **1388 assertions.**
+
 ## Phase 1 is done. What is actually left
 
 GDD §29's Functional, UX and Quality criteria all pass (`tools/m6-tests.js`). FIVE
@@ -163,6 +181,16 @@ missed bags are still sitting in a cart** and the belt queue never exceeds six. 
 keeps up with sorting; the constraint is trips to the gate. That is why the "veteran" bot
 profile scores WORSE than "average" — it hauls at six bags instead of eight and spends
 the difference driving.
+
+✅ **RESOLVED 2026-08-24 (GDD §37), and the last sentence above was the right observation
+attached to the wrong conclusion.** "The veteran hauls at six and spends the difference
+driving" is exactly correct — and it was read as a fact about the GAME for two milestones
+when it was a fact about the PRESET TABLE. `tools\_axes.js` swept each axis with the other
+two pinned: `haulAt` peaks at 8 (4:1300 · 6:2300 · **8:3450** · 10:1450) and the presets
+went 10 → 8 → 6 as skill rose, so the average crew sat on the optimum and both neighbours
+were detuned in opposite directions. The ladder was a hill. The rungs are rebuilt from the
+measured grid and the ladder now reads **novice 47%/−1850 → average 75%/+1950 → veteran
+86%/+3450**, asserted by m6 D14.
 
 ✅ **FIXED 2026-08-23 — the paragraph above is the state of the world BEFORE the bot could
 drive, and it is kept because the reasoning it contains was wrong in an instructive way.**

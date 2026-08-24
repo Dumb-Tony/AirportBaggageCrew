@@ -187,6 +187,14 @@ $mutations = @(
      suites  = @("m2", "m6")
      why     = "GDD §36's whole subject: raise the lateral limit and cornering stops costing anything" }
 
+  @{ name    = "skill-ladder-back-to-a-hill"
+     file    = "tools\_bot.js"
+     find    = "veteran: { scanGapMs: 90,  lookaheadMs: 45000, haulAt: 8,  label: 'veteran' },"
+     replace = "veteran: { scanGapMs: 90,  lookaheadMs: 110000, haulAt: 6,  label: 'veteran' },"
+     matches = 1
+     suites  = @("m6")
+     why     = "GDD §37: the veteran detuned past both optima, so the top rung sinks below the middle" }
+
   @{ name    = "shift-is-11-bags-a-flight-again"
      file    = "src\data\flights.js"
      find    = "bagCount: 17,"
