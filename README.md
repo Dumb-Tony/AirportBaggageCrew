@@ -14,7 +14,7 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1341 assertions green across ten suites.**
+tests themselves. 1343 assertions green across ten suites.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -190,7 +190,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1341 assertions also pass under Edge:
+All 1343 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -499,10 +499,22 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   a collision model — the tractor drives straight through a parked cart — so the
   disruption arrives without the blocking that would explain it. A cart on the drawbar is
   the constraint's business; the complaint was about parked ones, and that is what changed.
-- **Carts are placed, not driven.** A towed cart is positioned by the drawbar constraint
-  and then pushed out of any wall it lands in, rather than colliding properly. It cannot
-  end up inside geometry — the suite checks that over a full run — but a cart taking a
-  tight corner can visibly clip a wall for a frame.
+- **Carts are placed, not driven** — a towed cart is positioned by the drawbar constraint
+  and then pushed out of any wall it lands in, rather than colliding properly.
+
+  This entry used to add "but a cart taking a tight corner can visibly clip a wall for a
+  frame". **That was never measured, and it does not happen.** `pushOutOfWalls` works on a
+  circle, so a clearing circle does not prove the rotated 2.4 × 1.5 m rectangle inside it
+  clears too — the two could disagree exactly mid-corner, which is why the claim was
+  plausible. Driving a train out through the sort-room doorway, round on the apron and back
+  in — the tightest corner in the game, taken both ways, because the drawbar swings the
+  other way coming back — gives **0 of 73,984 cart-perimeter samples inside a wall**.
+
+  The sampling is the part worth stating: 0.25 m spacing around the perimeter, against
+  walls 0.6 m thick. The first version sampled corners and edge midpoints, 1.2 m apart on
+  the long edge — twice the wall thickness — and would have reported a clean run whether
+  or not one happened. A geometry check coarser than the geometry it is checking is
+  vacuous, and `m2` E6.pre asserts the spacing so it cannot quietly become so again.
 - **Stacking is separation, not physics.** Bags push each other apart on the floor; they
   do not stack into a pile with height. GDD §6.4 explicitly permits this.
 - **The live render loop is only partly provable in tests.** Headless Chrome in

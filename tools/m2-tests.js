@@ -546,6 +546,92 @@ lines.push('--- E. towing a loaded train (THE EXIT CRITERION) ---');
   eq('E6 and sound containment', assertContainment(g5.state).length, 0);
 
   /*
+   * DOES A CART ACTUALLY CLIP A WALL? The README has said since M6 that "a cart taking a
+   * tight corner can visibly clip a wall for a frame", which is a checkable claim and had
+   * never been checked.
+   *
+   * A towed cart is POSITIONED by the drawbar constraint and then pushed out of walls, and
+   * `pushOutOfWalls` works on a CIRCLE — radius half the cart's longest side. A circle
+   * that clears a wall does not prove the rotated 2.4 x 1.5 m rectangle inside it does, so
+   * the two can disagree exactly where the README says: mid-corner, at an angle.
+   *
+   * Sampled around the PERIMETER at 0.25 m spacing rather than by a full oriented-box
+   * intersection. The spacing is the load-bearing part: the sort-room walls are 0.6 m
+   * thick, so anything coarser than that could let a wall pass between two samples and
+   * the check would be quietly vacuous. The first version of this sampled the four
+   * corners and four edge midpoints — 1.2 m apart on the long edge, twice the wall
+   * thickness — and would have reported a clean run whether or not one happened.
+   *
+   * Driven out through the doorway, round on the apron and back in, because the drawbar
+   * swings the other way coming back and the doorway is the tightest corner in the game.
+   */
+  {
+    const gW = newGame();
+    const vW = gW.state.vehiclesById.tractor_1;
+    for (const id of ['cart_1', 'cart_2', 'cart_3']) {
+      const c = gW.state.cartsById[id];
+      c.hitchedToId = null; c.nextCartId = null;
+    }
+    lineUpBehind(gW, gW.state.cartsById.cart_2, 0);
+    enterVehicle(gW.state, vW, gW.bus, 0);
+    hitch(gW.state, vW, gW.state.cartsById.cart_2, gW.bus, 0);
+    gW.state.cartsById.cart_1.x = gW.state.cartsById.cart_2.x - 2;
+    hitch(gW.state, vW, gW.state.cartsById.cart_1, gW.bus, 0);
+
+    const L = CONFIG.cart.lengthM / 2, W = CONFIG.cart.widthM / 2;
+    const STEP = 0.25;                       // < the 0.6 m wall thickness, by a lot
+    const LOCAL = [];
+    for (let lx = -L; lx <= L + 1e-9; lx += STEP) { LOCAL.push([lx, W], [lx, -W]); }
+    for (let ly = -W; ly <= W + 1e-9; ly += STEP) { LOCAL.push([L, ly], [-L, ly]); }
+    ok('E6.pre the perimeter is sampled finer than a wall is thick',
+       STEP < 0.6 && LOCAL.length >= 24, `${LOCAL.length} points at ${STEP} m spacing`);
+    let clipped = 0, sampled = 0, worst = null;
+    const sampleCarts = () => {
+      for (const id of trainOf(gW.state, vW)) {
+        const c = gW.state.cartsById[id];
+        const cos = Math.cos(c.rot), sin = Math.sin(c.rot);
+        for (const [lx, ly] of LOCAL) {
+          sampled++;
+          const x = c.x + lx * cos - ly * sin;
+          const y = c.y + lx * sin + ly * cos;
+          if (isBlocked(x, y, 0)) {
+            clipped++;
+            if (!worst) worst = { id, x: +x.toFixed(2), y: +y.toFixed(2), rot: +c.rot.toFixed(2) };
+          }
+        }
+      }
+    };
+
+    // Out through the door, turn round on the apron, and back in again — the corner is
+    // taken in both directions, because the drawbar swings the other way coming back.
+    // Same steering as `driveTo`, but stepped by hand so every frame can be sampled —
+    // the claim is about ONE frame mid-corner, so a helper that only reports the end
+    // state cannot see it.
+    const inpW = new Input(window);
+    for (const [tx, ty] of [[37, 23], [45, 23], [37, 23], [22, 20]]) {
+      let frames = 0;
+      while (frames++ < 1200 && Math.hypot(tx - vW.x, ty - vW.y) > 2.2) {
+        let err = Math.atan2(ty - vW.y, tx - vW.x) - vW.rot;
+        while (err > Math.PI) err -= Math.PI * 2;
+        while (err < -Math.PI) err += Math.PI * 2;
+        inpW._debugRelease('KeyA'); inpW._debugRelease('KeyD');
+        if (err > 0.05) inpW._debugPress('KeyD');
+        else if (err < -0.05) inpW._debugPress('KeyA');
+        inpW._debugPress('KeyW');
+        gW.frame(FRAME_MS, inpW);
+        sampleCarts();
+      }
+    }
+    inpW.clear();
+
+    note(`train through the doorway both ways: ${clipped} of ${sampled} cart-perimeter ` +
+         `samples were inside a wall${worst ? ` (first ${JSON.stringify(worst)})` : ''}`);
+    ok('E6a no part of a towed cart is ever inside a wall, even mid-doorway',
+       clipped === 0,
+       `${clipped} of ${sampled} samples${worst ? `, first at ${worst.x},${worst.y}` : ''}`);
+  }
+
+  /*
    * COUNT BAGS, NOT EVENTS.
    *
    * This was `stillLoaded + spilled === 12` with `spilled` summed from `cart.spills` — an
