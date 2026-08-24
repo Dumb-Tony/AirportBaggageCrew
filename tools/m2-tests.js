@@ -622,6 +622,25 @@ lines.push('--- F. spillage (GDD 6.4, 10.2) ---');
   const empty = circle(CONFIG.tractor.maxSpeed, 600, 0);
   eq('F6 an empty cart has nothing to lose', empty.cart.spills, 0);
 
+  /*
+   * GDD §11.3's "cart corners taken above safe speed" has to COUNT CORNERS, and it used
+   * to count keystrokes. Steering is binary — `steer` is -1, 0 or +1 — so every course
+   * correction is full lock, and full lock above about 2.6 m/s with a loaded cart clears
+   * the lateral threshold. The counter fired on the way IN to every one of those, so a
+   * played shift reported 168 hard corners against 5.7 bags actually shed, and 56% of
+   * them cost under 0.05 stability and recovered within a tenth of a second.
+   *
+   * Both halves are asserted, because either alone is satisfiable by a broken counter:
+   * a hard circle MUST register, and a careful one must NOT.
+   */
+  ok('F6a a hard circle registers as a corner taken above safe speed',
+     fast.g.state.stats.hardCorners > 0, `${fast.g.state.stats.hardCorners} counted`);
+  eq('F6b a careful circle registers none at all', slow.g.state.stats.hardCorners, 0);
+  ok('F6c and a counted corner is one that nearly cost the load, not a steering nudge',
+     fast.g.state.stats.hardCorners <= fast.cart.spills * 8 + 4,
+     `${fast.g.state.stats.hardCorners} corners against ${fast.cart.spills} spills — ` +
+     'a counter that fires on every keystroke runs to hundreds');
+
   /* the cooldown: a spilled bag must not be swallowed again by the cart that lost it */
   const g = newGame();
   const cart = g.state.cartsById.cart_2;

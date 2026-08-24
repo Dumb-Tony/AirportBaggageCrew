@@ -14,7 +14,7 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1321 assertions green across ten suites.**
+tests themselves. 1324 assertions green across ten suites.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -190,7 +190,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1321 assertions also pass under Edge:
+All 1324 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -436,14 +436,28 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
 
   The number to beat was 80%. It is **85%** now, and that came from teaching the bot to
   drive rather than from teaching it to couple.
-- **Spill tuning is still provisional, and it just got a lot more interesting.** A
-  full-lock circle at top speed empties a cart. The bot sheds about five bags a shift and
-  now takes **200 corners above the safe speed — up from 23**, because until the driving
-  was fixed it spent half of every haul reversing at 3 m/s and simply never went fast
-  enough to load a cart laterally. So the spill model has only just started being
-  exercised at the speeds the tractor can actually reach, and nobody has decided whether
-  five bags a shift is the right price. This is the first number on this page that the
-  driving fix made *worse*, and it is worth a proper look.
+- **Spill tuning: the statistic was wrong, the model was not.** Once the bot could drive,
+  the shift report started claiming **168 corners above safe speed** — one every three and
+  a half seconds — against **5.7 bags actually shed**. Those two numbers cannot both be
+  describing the same thing.
+
+  `tools\_spill.js` measured the whole distribution rather than the two counters. The
+  median overload lasts 100 ms and costs **0.040** of a cart's stability; **56% of them
+  cost under 0.05 and recover within a tenth of a second**. The model is behaving exactly
+  as designed — a brief overload is nothing, a sustained one loses a bag. The *counter*
+  fired on the way in to every one of them.
+
+  That is a keyboard artefact. Steering is binary — `steer` is −1, 0 or +1 — so every
+  course correction is full lock, and full lock above about 2.6 m/s with a loaded cart
+  clears the lateral threshold. The counter was measuring keystrokes. It now counts an
+  overload only once it has cost a quarter of the cart's grip, which is **22 per shift**
+  against 5.7 spills: a statistic that means "I nearly lost that load" instead of "I
+  nudged the stick". GDD §11.3 asks for an odd statistic, and one that ticks every few
+  seconds is noise.
+
+  **Genuinely still open:** whether 5.7 bags a shift — about one every two minutes, 11% of
+  the load — is the right price. That is a design question rather than a bug, and it is
+  the first time anyone has had honest numbers to argue it from.
 - **Audio is synthesised, not designed.** Every cue is an oscillator or filtered noise.
   It is legible and it escalates, but it is a placeholder for a sound pass, and the
   mixing between the three beds and the one-shots has not been balanced against anything.

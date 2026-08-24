@@ -22,6 +22,20 @@ const MAX_TRAIN = 16;   // runaway guard: a cycle must never spin forever
 
 /** Put one cart's bags back in its slots. The same rule `syncCartBagPositions` applies to
  *  every cart once a step; needed here because `hitch` moves a cart after that has run. */
+/**
+ * How much stability one overload has to cost before it counts as a CORNER.
+ *
+ * A quarter of a cart's grip. Measured (`tools\_spill.js`, 3 shifts at average skill):
+ * the median overload costs 0.040 and the 90th percentile 0.349, so this counts roughly
+ * the worst tenth — the ones that came close to putting a bag on the ramp — and ignores
+ * the steering corrections that make up the rest.
+ *
+ * Not in `CONFIG` because it tunes a REPORTED STATISTIC and nothing the simulation does:
+ * moving it changes what the end-of-shift card says and cannot change the outcome of a
+ * shift. Difficulty and physics belong in config; this is a label.
+ */
+const CORNER_COUNTS_AT = 0.25;
+
 export function pinCartLoad(state, cart) {
   for (let i = 0; i < cart.bagIds.length; i++) {
     const bag = state.bagsById[cart.bagIds[i]];
@@ -203,16 +217,33 @@ export function updateTrain(state, vehicle, dtSec, bus = null, simTimeMs = 0) {
       const lat = Math.abs(moved * omega) * (0.5 + cartFillFrac(cart));
 
       if (lat > C.spillLatMps2) {
-        cart.stability -= (lat - C.spillLatMps2) * C.spillDrainRate * dtSec;
-        // GDD §11.3 "cart corners taken above safe speed" — counted on the way IN to
-        // the overload, so one long corner is one corner and not two hundred steps.
-        if (!cart.overLimit) {
+        const drain = (lat - C.spillLatMps2) * C.spillDrainRate * dtSec;
+        cart.stability -= drain;
+        cart.cornerDrain = (cart.cornerDrain || 0) + drain;
+        /*
+         * GDD §11.3 "cart corners taken above safe speed" — counted once per overload,
+         * and ONLY when the overload actually cost something.
+         *
+         * ⚠ IT USED TO FIRE ON THE WAY IN, and that counted keystrokes rather than
+         * corners. Steering is BINARY (`steer` is -1, 0 or +1), so every course
+         * correction is full lock, and full lock above about 2.6 m/s with a loaded cart
+         * is over this threshold — which meant the shift report claimed 168 hard corners
+         * a shift, one every three and a half seconds, against 5.7 bags actually shed.
+         * Measured, 56% of them cost under 0.05 stability and recovered within a tenth
+         * of a second: invisible to the player, and not a corner by any reading.
+         *
+         * A quarter of a cart's grip is the bar now. It is a statistic a player is
+         * supposed to read at the end and wince at, so it has to mean "I nearly lost
+         * that load", not "I nudged the stick".
+         */
+        if (!cart.overLimit && cart.cornerDrain >= CORNER_COUNTS_AT) {
           cart.overLimit = true;
           if (state.stats) state.stats.hardCorners++;
         }
       } else {
         cart.stability = Math.min(1, cart.stability + C.stabilityRecover * dtSec);
         cart.overLimit = false;
+        cart.cornerDrain = 0;
       }
 
       if (cart.stability <= 0 && cart.bagIds.length > 0) {

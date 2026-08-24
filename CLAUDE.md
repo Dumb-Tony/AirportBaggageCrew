@@ -117,7 +117,7 @@ Dev-wide catalog of what already exists and where to copy it from.
   both found by the invariant sweep rather than by eye: `separate()` normalised a
   degenerate contact with a divisor of 1e-6 and flung a bag **181 km** out of the world,
   and separation could shove a bag through the sort-room wall where nothing could reach
-  it. **1321 assertions, ten suites, soak clean across 21 fuzzed shifts.**
+  it. **1324 assertions, ten suites, soak clean across 21 fuzzed shifts.**
 
 ## Phase 1 is done. What is actually left
 
@@ -252,8 +252,22 @@ Budget for re-tuning three phases, not for a four-line patch.
   of the pile when nothing specific is in range; without that you could load a bag and
   then be unable to retrieve it.
 - **Spill is a stability score, not physics** (GDD §6.4 permits this). Lateral load is
-  speed × yaw rate scaled by fill. The numbers are PROVISIONAL — M6 owns them — and a
-  full-lock circle at top speed still empties a cart.
+  speed × yaw rate scaled by fill, and a full-lock circle at top speed still empties a
+  cart. Measured (`tools\_spill.js`, 3 shifts): 169 overload episodes a shift, median
+  duration 100 ms, median cost **0.040** of one cart's stability, 5.7 bags actually shed.
+  The model is doing the right thing — brief overloads are nothing, sustained ones cost a
+  bag. Whether 5.7 a shift is the right PRICE is still open.
+- ⚠ **STEERING IS BINARY, so there is no such thing as a gentle correction.** `steer` is
+  −1, 0 or +1, so every nudge is full lock, and full lock above about 2.6 m/s with a
+  loaded cart clears the lateral threshold. Any statistic that keys on "is it over the
+  limit right now" is therefore counting KEYSTROKES: GDD §11.3's "corners taken above safe
+  speed" read 168 a shift against 5.7 spills until it was changed to require an overload
+  to have cost a quarter of the cart's grip (`CORNER_COUNTS_AT`), which gives 22.
+  **A counter that ticks every few seconds is not an odd statistic, it is noise.**
+- **`CORNER_COUNTS_AT` is deliberately NOT in `CONFIG`.** It tunes a reported statistic
+  and nothing the simulation does — moving it changes what the end-of-shift card says and
+  cannot change the outcome of a shift. Difficulty and physics live in config; a label
+  does not.
 - **`stateAt(times, simTimeMs)` is a pure function and must stay one.** It is how GDD
   §31.1.7 is enforced: there is no parameter that could carry player readiness, so a
   flight cannot be made to wait. Do not add a `state` argument, do not close over
@@ -749,7 +763,9 @@ tools\shot.ps1 -Setup tools\_shot-vis-sortroom.js -Out docs\vis-sortroom.png
 # diagnostics (not suites — they measure, they don't gate):
 tools\smoketest.ps1 -Tests tools\_raf.js      # is rAF usable under the harness
 tools\smoketest.ps1 -Tests tools\_balance.js  # GDD §28.4 telemetry, from a bot that plays
-tools\smoketest.ps1 -Tests tools\_route.js    # where the haul goes, and why _balance is pessimistic
+tools\smoketest.ps1 -Tests tools\_route.js    # where the haul goes, and whether the bot can drive
+tools\smoketest.ps1 -Tests tools\_spill.js    # what the cart stability model is actually doing
+tools\smoketest.ps1 -Tests tools\_escape.js   # catch anything that leaves the world, at the step
 tools\smoketest.ps1 -Tests tools\_soak.js     # fuzz every invariant after every step
 tools\shot.ps1 -Setup tools\_shot-m6.js -Out docs\m6-report.png
 tools\shot.ps1 -Setup tools\_shot-m5.js -Out docs\m5-first-minute.png

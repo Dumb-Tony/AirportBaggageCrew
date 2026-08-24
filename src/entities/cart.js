@@ -37,6 +37,10 @@ export function createCart(id, x, y, rot = 0) {
     stability: 1,               // 1 steady, 0 about to throw a bag off
     rolledM: 0,                 // distance travelled, so the wheels can turn (presentation)
     spills: 0,
+    // How much stability the CURRENT overload has cost so far, reset when the cart comes
+    // back under the limit. It exists so GDD §11.3's "corners taken above safe speed" can
+    // count corners rather than keystrokes — see `updateTrain`.
+    cornerDrain: 0,
   };
 }
 
