@@ -1,4 +1,4 @@
-/* CrewBot — a player, not a cheat.
+﻿/* CrewBot — a player, not a cheat.
  *
  * Milestone 6 is a BALANCE pass, and balance needs evidence about what a person can
  * actually get done in eight minutes. The m3 bot proved the arithmetic closes by

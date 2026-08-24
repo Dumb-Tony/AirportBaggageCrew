@@ -67,7 +67,28 @@ CONVEYOR.lengthM = Math.hypot(CONVEYOR.x1 - CONVEYOR.x0, CONVEYOR.y1 - CONVEYOR.
  *  Moved north for M2. At M1 they sat at y 29-37 and the carry from the belt drop was
  *  ~17 m per bag; with carts as the target that walk is the whole loop and it was far
  *  too long. From the pile at (26, 13) the near bay is now ~7 m. The pressure is meant
- *  to come from choosing the right cart and from the drive, not from walking. */
+ *  to come from choosing the right cart and from the drive, not from walking.
+ *
+ *  ⚠ MOVED FURTHER NORTH ON 2026-08-23 AND PUT BACK, which is worth recording because the
+ *  argument for moving them was good and the measurement disagreed. A competent crew parks
+ *  its train on the line y 15.2, five metres north of these bays — swept and confirmed:
+ *  85% delivered parking at (20, 15.2) against 78% at (23, 15.2) and 77% at (25, 15.2),
+ *  because bags spread along the whole belt as the feed defers and mid-belt beats the
+ *  discharge end. So a player who reads the paint walks about seven metres a bag and one
+ *  who ignores it walks about three, and paint that punishes you for reading it is worse
+ *  than no paint.
+ *
+ *  Bringing the bays to y 16 did cut walking, 896 m to 824 m. It also cost twelve points
+ *  of delivery (85% to 73%), took a careless crew from 48% to 34%, and produced a dead
+ *  end where there had been none — the carts start closer to the belt, and the room left
+ *  to manoeuvre a nine-metre train around them is what pays for it.
+ *
+ *  HONEST LIMIT on that conclusion: the regression appears in the crew bot's cart pickup,
+ *  and a human is not subject to the bot's approach geometry. It may be an instrument
+ *  artefact. But it is the only instrument there is, it says the change is worse, and the
+ *  case for moving them was a theory about signage rather than a measurement. m0 F11b now
+ *  asserts each anchor sits inside its own painted bay, so whoever tries this next cannot
+ *  move the paint and leave the carts behind. */
 export const STAGING_PADS = [
   { id: 'pad_gate_1', gateId: 'gate_1', label: 'GATE 1', x: 16, y: 17.5, w: 7, h: 5.5 },
   { id: 'pad_gate_2', gateId: 'gate_2', label: 'GATE 2', x: 25, y: 17.5, w: 7, h: 5.5 },

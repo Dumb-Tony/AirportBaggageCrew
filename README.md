@@ -14,7 +14,7 @@ There is no build step: the game is plain ES modules and static files, and Pages
 serves them over http, which is the one thing the game needs (see below).
 
 **Current state: Phase 1 feature-complete, plus a hardening pass and an audit of the
-tests themselves. 1337 assertions green across ten suites.**
+tests themselves. 1341 assertions green across ten suites.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -190,7 +190,7 @@ returns early after a failure. Both drain coverage in total silence. `tools\test
 holds a baseline count for each suite and the run fails when the number moves, in either
 direction, which is the moment somebody has to look at it.
 
-All 1337 assertions also pass under Edge:
+All 1341 assertions also pass under Edge:
 
 ```bash
 tools\test.ps1 -Browser edge
@@ -466,9 +466,28 @@ one writer of a bag location) and `baggageFlow.js` (spawning and loose-bag movem
   is a UI away rather than a rewrite.
 - **Arrivals do not exist.** Every flight is a departure. GDD §4.3 arrivals and §4.4
   connections are explicitly post-MVP.
-- **The sort room has a lot of empty floor** now the cart bays have moved north, and the
-  bays themselves are far enough from the belt drop that sorting is 61% of the shift.
-  Level layout would be the next real lever on pacing.
+- **The sort room has a lot of empty floor**, and sorting is 54% of the shift. Level
+  layout is the next real lever on pacing — but the obvious move measured *worse*, and
+  that is worth knowing before anyone tries it again.
+
+  A competent crew parks its train on the line **y 15.2**, five metres north of the
+  painted bays. Swept and confirmed: 85% delivered parking at (20, 15.2) against 78% at
+  (23, 15.2) and 77% at (25, 15.2) — bags spread along the whole belt as the feed defers,
+  so mid-belt beats the discharge end. Which means a player who reads the paint walks
+  about seven metres a bag and one who ignores it walks about three: **the signage points
+  away from the good line.**
+
+  Bringing the bays north to meet it cut walking from 896 m to 824 m and cost twelve
+  points of delivery (85% → 73%), took a careless crew from 48% to 34%, and produced a
+  dead end where there had been none — the carts start closer to the belt, and the room
+  left to manoeuvre a nine-metre train around them is what pays for it. Reverted.
+
+  ⚠ **Honest limit:** the regression shows up in the crew bot's cart pickup, and a human
+  is not subject to the bot's approach geometry, so it may be an instrument artefact. But
+  it is the only instrument there is, it says the change is worse, and the case for moving
+  the bays was a theory about signage rather than a measurement. `m0` F11b now asserts each
+  cart's starting anchor sits inside its own painted bay, so the next attempt cannot move
+  the paint and leave the carts behind.
 - ✅ **Parked carts no longer overlap.** Two on the same square metre both answered to `E`
   and the nearest centre won, so standing between them loaded the one you did not mean —
   confusing, and the single most common way the bot lost time before it learned to circle.

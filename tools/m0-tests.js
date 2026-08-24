@@ -18,8 +18,8 @@ import { Game, MODES, createInitialState } from '../src/game.js';
 import { CONFIG } from '../src/config.js';
 import { MIN_PX_PER_M } from '../src/render/camera.js';
 import {
-  WORLD, BOUNDS, ZONES, WALLS, ANCHORS, DOOR,
-  clampToBounds, isBlocked, zoneAt, anchorDistance, rectsOverlap,
+  WORLD, BOUNDS, ZONES, WALLS, ANCHORS, DOOR, STAGING_PADS, CONVEYOR,
+  clampToBounds, isBlocked, zoneAt, anchorDistance, rectsOverlap, rectContains,
 } from '../src/data/airport.js';
 
 /* ── harness ─────────────────────────────────────────────────────────────── */
@@ -356,6 +356,26 @@ lines.push('--- F. map bounds and geometry (GDD 20.2, 24.3, 8.3) ---');
     isBlocked(p.x, p.y) || p.x < BOUNDS.x || p.x > BOUNDS.x + BOUNDS.w ||
     p.y < BOUNDS.y || p.y > BOUNDS.y + BOUNDS.h);
   ok('F11 no anchor sits inside a wall or outside the bounds', !badAnchor, badAnchor && badAnchor[0]);
+
+  /*
+   * THE BAY ANCHORS AND THE PAINTED BAYS ARE TWO COPIES OF ONE FACT, so they can drift —
+   * and they nearly did: the pads moved north 1.5 m to sit where a competent crew actually
+   * parks, and an anchor left behind would start each cart on bare floor beside its own
+   * marked bay, which is exactly the "paint that points at the wrong place" problem the
+   * move was made to fix. Checked as containment rather than as equal numbers, because the
+   * anchor is meant to be the pad's CENTRE and a pad could legitimately be resized.
+   */
+  for (const [name, gate] of [['cartBay1', 'gate_1'], ['cartBay2', 'gate_2']]) {
+    const a = ANCHORS[name];
+    const pad = STAGING_PADS.find((p) => p.gateId === gate);
+    ok(`F11b.${name} starts a cart inside its own painted bay`,
+       !!pad && rectContains(pad, a.x, a.y),
+       `anchor ${a.x},${a.y} against pad ${pad && `${pad.x}..${pad.x + pad.w}, ${pad.y}..${pad.y + pad.h}`}`);
+    // ...and clear of the belt, which is the thing directly north of them.
+    ok(`F11c.${name} is clear of the conveyor`,
+       a.y > CONVEYOR.y0 + CONVEYOR.widthM + CONFIG.cart.lengthM * 0.5,
+       `bay y ${a.y}, belt ends at ${CONVEYOR.y0 + CONVEYOR.widthM}`);
+  }
 
   const outside = ZONES.find((z) => z.x < 0 || z.y < 0 ||
     z.x + z.w > WORLD.widthM || z.y + z.h > WORLD.heightM);
