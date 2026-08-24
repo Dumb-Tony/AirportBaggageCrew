@@ -24,6 +24,12 @@ param(
   # right setting for the diagnostics in tools\_*.js, which measure rather than gate.
   # tools\test.ps1 holds the baseline for the eight real suites.
   [int]$ExpectAssertions = 0,
+  # Write the raw test block to this file as well as to the console. Everything this
+  # script prints goes through Write-Host, which is the information stream and not the
+  # pipeline — so a caller that needs to READ the result (tools\_mutate.ps1 does, to find
+  # out which assertions a deliberate bug killed) cannot get it by capturing stdout.
+  # A file is unambiguous and survives the console colouring above.
+  [string]$OutFile = "",
   [switch]$Keep
 )
 $ErrorActionPreference = "Stop"
@@ -105,6 +111,9 @@ if (-not $m.Success) {
 }
 
 $body = $m.Groups[1].Value.Trim() -replace '&lt;','<' -replace '&gt;','>' -replace '&amp;','&'
+if ($OutFile) {
+  [System.IO.File]::WriteAllText($OutFile, $body, (New-Object System.Text.UTF8Encoding $false))
+}
 foreach ($line in ($body -split "`n")) {
   $t = $line.Trim()
   if ($t -like 'FAIL*')          { Write-Host $t -ForegroundColor Red }
