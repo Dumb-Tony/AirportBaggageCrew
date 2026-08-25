@@ -1863,3 +1863,110 @@ against 80% — the same inversion this whole milestone exists to remove, reappe
 the shift size alone. So the presets are not a fixed property of the bot; they are a
 property of the bot *and* the shift it plays, and `m6 D14` has to be re-run whenever the
 count moves. `_bagsweep.ps1` now prints that check per row.
+
+---
+
+## 38. Milestone 13 — The Clay Ramp
+
+**Authored 2026-08-25, before any code, from a direction the player picked.** Three
+treatments were pitched (flat oblique, close chunky oblique, true isometric) and all three
+were rejected — correctly, because all three were the same rectangles with better lighting
+on them. The brief that survived is **soft 3D diorama, fully stylised**: matte clay
+materials, everything rounded, soft ambient shadows, proportions that serve the look rather
+than accuracy.
+
+### 38.1 The look, and why it is a lighting problem
+
+A clay diorama is not a 2D style. What makes clay read as clay is three things, none of
+which is a drawing decision:
+
+- **Wrapped diffuse** — light bleeds past the terminator instead of stopping at it, so the
+  shadow side stays soft and full of colour.
+- **Ambient occlusion** — contact darkening where forms meet, which is what gives rounded
+  objects their weight.
+- **Soft shadows** — a broad key light, no hard edges anywhere.
+
+Those are computed per pixel from a distance field, not drawn. The direction test that got
+signed off (`scratchpad/clay8.png`) is a signed-distance-field raymarch: rounded-box and
+sphere primitives, wrapped diffuse, a four-tap AO, and a soft shadow march.
+
+### 38.2 ⚠ It cannot be rendered live, and the numbers say so
+
+Measured on this machine, the raymarcher runs at **43 pixels per millisecond** in
+JavaScript — flat across 96 px, 128 px and 192 px sprites, so it is compute-bound and does
+not amortise.
+
+A frame at 840 × 440 is 370 000 pixels: **about 8.5 seconds**. A frame budget is 16.7 ms.
+That is roughly four orders of magnitude out, and no optimisation closes it. (Intersecting
+the ground plane analytically instead of marching it did give a genuine 9× — grazing rays
+against an SDF plane are pathological — but 9× against 15 000× is nothing.)
+
+So the look has to be **pre-rendered into sprites**. Sizing a realistic set:
+
+| object | sprites | size | pixels |
+|---|---|---|---|
+| cart | 24 headings | 192 | 885 k |
+| tractor | 24 headings | 192 | 885 k |
+| crew | 16 headings × 4 walk phases | 128 | 1 049 k |
+| bags | 3 classes × 12 headings | 80 | 230 k |
+| aircraft | 2 | 448 | 401 k |
+| **total** | | | **≈ 3.45 M** |
+
+At 43 px/ms that is **80 seconds**. Baking at load is therefore rejected outright: it is not
+a slow load, it is a broken one. The atlas is baked **offline by a dev tool** and shipped.
+
+### 38.3 ⚠ Sprites require ORTHOGRAPHIC projection
+
+A pre-baked sprite is only valid if an object's appearance depends on its **heading alone**.
+Under perspective it also depends on where the object sits in the frame — you see the left
+side of a cart on the left of the screen and the right side of one on the right — so a
+single sprite per heading would be correct only at the centre of the view.
+
+Orthographic removes that dependency, and it is what the game already uses. The camera
+therefore stays orthographic; the diorama feeling comes from the **shading and the
+elevation**, not from a perspective lens. Elevation is fixed at 42°, which is the angle
+every sprite is baked at, so it becomes a hard constant shared by the baker and the camera —
+if they ever disagree, every object in the game is lit for a camera that is not there.
+
+### 38.4 The atlas ships as a same-origin PNG, not a data URI
+
+Checked against the assertions rather than assumed. `m6 G4` forbids `script[src]`,
+`link[href]` and `img[src]` whose URL matches `https?://` or `//` — that is an **off-origin**
+test. `m6 G6` filters runtime resource timings for anything not starting with
+`location.origin`, and explicitly permits `data:` and `blob:`. GDD §21.1's "no external
+requests" means no external services; the ES modules themselves are already fetched
+same-origin.
+
+So `assets/sprites.png` is legal under both, and it is strictly better than embedding: no
+33% base64 inflation, it stays out of the JavaScript, and the browser caches it.
+
+The cost is that loading is **asynchronous**, which the boot sequence currently is not. The
+title screen gates on the atlas being ready.
+
+### 38.5 What must not break
+
+- **Nothing in the simulation.** No metres, no collision, no timings, no scoring. All 1388
+  assertions about how the airport behaves stay exactly as they are.
+- **Animation stays derived.** The walk phase is chosen from `player.walkedM`, wheels from
+  `odometerM` and `cart.rolledM`, exactly as now — the sprite index is a function of a
+  simulation value, never of a renderer-side clock. A paused game still freezes mid-stride.
+- **m8's differentials.** They remove one class of thing, re-render and count changed
+  pixels; that survives a repaint and must stay green.
+- **m9's colour audit.** The flight tags are drawn at runtime over the sprite — they carry
+  per-bag data and cannot be baked — so the three-channel rule (code, colour, icon) is
+  unchanged. The floor surfaces must still sit inside `E7`'s luminance band; the new palette
+  changes hue and saturation, which that assertion does not measure.
+- **The readability floor.** A bag tag stays ≥ 15 px at every window width (m1 `I5c`).
+
+### 38.6 Completion criteria (all measurable)
+
+1. `tools\_bake.js` produces `assets/sprites.png` plus a frame index, deterministically —
+   the same input gives a byte-identical atlas.
+2. Bake time and atlas size are both reported as numbers and recorded here.
+3. The baker's elevation constant and the camera's are the **same** constant, imported, not
+   two copies — asserted.
+4. The game boots with the atlas loaded and never draws a frame with a missing sprite;
+   a missing frame is a loud failure, not a silent gap.
+5. All ten suites stay green, with m8's differentials updated to the new renderer rather
+   than deleted.
+6. Every `docs/*.png` is retaken from the new renderer.

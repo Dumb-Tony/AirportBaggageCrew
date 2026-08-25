@@ -52,7 +52,7 @@ export const CONFIG = {
     // Vertical foreshortening of the GROUND plane. 1.0 is straight down and reads as a
     // floorplan; lower tilts the view. 0.75 is about a 49-degree camera and is what
     // makes the airport read as a place rather than a map (GDD 19.1 allows 2.5D).
-    groundSquash: 0.75,
+    groundSquash: 0.669,
     followLerp: 7,         // camera catch-up rate, 1/s. Higher is snappier, more jarring.
     fitPaddingM: 3,        // used by the 'fit' camera mode (debug, and Milestone 0)
     maxPixelRatio: 2,      // cap DPR: a 4K display would otherwise quadruple fill cost
