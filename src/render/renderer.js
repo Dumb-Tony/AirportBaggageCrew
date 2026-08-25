@@ -24,6 +24,8 @@ import { aircraftHoldZone } from '../entities/aircraft.js';
 import { CONFIG } from '../config.js';
 import { texAsphalt, texIndoor, texRoad, pattern, tint } from './textures.js';
 import { FX } from './fx.js';
+import { atlas } from './atlas.js';
+import { BAG_CLAY } from './clay.js';
 import {
   drawPerson, drawBagTop, drawWheel, drawTractorBody, drawCartBody,
   drawAircraftGear, drawHoldDoor, rr as roundRect,
@@ -418,6 +420,55 @@ export class Renderer {
     return list;
   }
 
+  /*
+   * ── THE CLAY BLIT (GDD §38) ────────────────────────────────────────────────
+   *
+   * Draw one baked sprite standing on the ground at (wx, wy). Returns false when the
+   * atlas has not arrived, and every caller falls back to the vector drawing it used
+   * before — so the game is never a blank screen, and the suites still mean something if
+   * they run without `assets/`.
+   *
+   * ⚠ That fallback is for a MISSING ATLAS, not for a missing frame. An unknown sprite
+   * name throws out of `sprites.frame()`, because that is a programming mistake and GDD
+   * §38.6.4 wants it loud — a silently absent object looks exactly like an object that
+   * was not there, on a canvas where both are just background.
+   *
+   * The sprite already carries the foreshortening, having been baked through the same
+   * orthographic camera the game uses, so this only ever scales UNIFORMLY by `scale`.
+   * Drawn in screen space: `resetTransform` leaves a DPR-only matrix, and `worldToScreen`
+   * returns CSS pixels, which is exactly the pair that needs no further correction.
+   */
+  _blit(name, rot, wx, wy, alpha = 1, liftM = 0) {
+    if (!atlas.ready) return false;
+    const { ctx, camera } = this;
+    const p = camera.worldToScreen(wx, wy);
+    camera.resetTransform(ctx);
+    /* `liftM` raises a RIDING object onto its carrier's deck. Height is unsquashed —
+     * a metre of height is a metre of screen, which is the same rule `beginUpright`
+     * uses — so a bag on a cart lands on the bed rather than through it. */
+    atlas.draw(ctx, name, rot, p.x, p.y - liftM * camera.scale, camera.scale, alpha);
+    return true;
+  }
+
+  /**
+   * Which clay bag to draw. The atlas is baked per body colour and weight class, and the
+   * bag's cosmetic colour is picked from a 12-entry table, so this folds 12 onto the 8
+   * baked materials. Deliberately derived at RENDER time from the colour the bag already
+   * has, rather than storing a sprite index on the entity: the simulation gains no field,
+   * `describe()` does not change, and every determinism snapshot stays byte-identical.
+   */
+  _clayBag(bag) {
+    /* ⚠ HASHED, not counted. The first version handed out indices in the order bags were
+     * first drawn, which is a property of the CAMERA — pan somewhere else and the same bag
+     * comes out a different colour, and two runs of one seed stop matching. A hash of the
+     * colour string depends on nothing but the bag. */
+    const c = bag.appearance.color;
+    let h = 2166136261;
+    for (let k = 0; k < c.length; k++) { h ^= c.charCodeAt(k); h = Math.imul(h, 16777619); }
+    const i = (h >>> 0) % BAG_CLAY.length;
+    return `bag_${BAG_CLAY[i]}_${bag.weightClass || 'normal'}`;
+  }
+
   _drawUpright(d, state) {
     switch (d.t) {
       case T.WALL:     return this._wall(d.o);
@@ -537,24 +588,24 @@ export class Renderer {
   _cart(cart, state) {
     const { ctx, camera } = this;
     const L = CONFIG.cart.lengthM, W = CONFIG.cart.widthM;
+    const clay = this._blit('cart', cart.rot, cart.x, cart.y);
     camera.beginUpright(ctx, cart.x, cart.y);
     const sd = W * camera.squash;
 
-    // wheels first, so the bed sits over them. They turn on distance rolled.
-    const spin = cart.rolledM / 0.24;
-    const along = Math.cos(cart.rot), across = Math.sin(cart.rot);
-    for (const ox of [-0.72, 0.72]) {
-      drawWheel(ctx, along * ox - across * 0.0, across * ox * camera.squash - 0.24,
-                0.24, spin);
+    if (!clay) {
+      // wheels first, so the bed sits over them. They turn on distance rolled.
+      const spin = cart.rolledM / 0.24;
+      const along = Math.cos(cart.rot), across = Math.sin(cart.rot);
+      for (const ox of [-0.72, 0.72]) {
+        drawWheel(ctx, along * ox - across * 0.0, across * ox * camera.squash - 0.24,
+                  0.24, spin);
+      }
+      extrude(ctx, cart.rot, L, sd, H.cart, '#262a34', 0.16);
+      ctx.save();
+      ctx.translate(0, -H.cart);
+      drawCartBody(ctx, cart, sd);
+      ctx.restore();
     }
-
-    extrude(ctx, cart.rot, L, sd, H.cart, '#262a34', 0.16);
-
-    // bed
-    ctx.save();
-    ctx.translate(0, -H.cart);
-    drawCartBody(ctx, cart, sd);
-    ctx.restore();
 
     // stability warning — GDD §6.4 wants spill risk readable BEFORE it happens
     if (cart.stability < 0.6) {
@@ -603,18 +654,20 @@ export class Renderer {
   _tractor(v, state) {
     const { ctx, camera } = this;
     const L = CONFIG.tractor.lengthM, W = CONFIG.tractor.widthM;
+    const clay = this._blit('tractor', v.rot, v.x, v.y);
     camera.beginUpright(ctx, v.x, v.y);
     const sd = W * camera.squash;
 
-    // wheels, turning on the odometer
-    const spin = v.odometerM / 0.28;
-    const along = Math.cos(v.rot);
-    for (const ox of [-0.66, 0.66]) {
-      drawWheel(ctx, along * ox, -0.26, 0.28, spin);
+    if (!clay) {
+      // wheels, turning on the odometer
+      const spin = v.odometerM / 0.28;
+      const along = Math.cos(v.rot);
+      for (const ox of [-0.66, 0.66]) {
+        drawWheel(ctx, along * ox, -0.26, 0.28, spin);
+      }
+      extrude(ctx, v.rot, L, sd, H.tractor * 0.28, '#6b3d0f', 0.2);
+      drawTractorBody(ctx, v, sd, state.simTimeMs, !!v.driverId, !this.reducedMotion);
     }
-
-    extrude(ctx, v.rot, L, sd, H.tractor * 0.28, '#6b3d0f', 0.2);
-    drawTractorBody(ctx, v, sd, state.simTimeMs, !!v.driverId, !this.reducedMotion);
 
     if (!v.driverId && state.player.targetVehicleId === v.id) {
       ctx.strokeStyle = PALETTE.paint;
@@ -649,10 +702,11 @@ export class Renderer {
     const lift = bag.location.type === 'cart' ? H.cart
                : bag.location.type === 'conveyor' ? H.belt : 0;
 
+    const clay = this._blit(this._clayBag(bag), bag.rot, bag.x, bag.y, 1, lift);
     camera.beginUpright(ctx, bag.x, bag.y);
     if (lift) ctx.translate(0, -lift);
 
-    extrude(ctx, bag.rot, w, sd, t, shade(bag.appearance.color), 0.1);
+    if (!clay) extrude(ctx, bag.rot, w, sd, t, shade(bag.appearance.color), 0.1);
 
     ctx.save();
     ctx.translate(0, -t);
@@ -661,7 +715,7 @@ export class Renderer {
     // The body, by physical kind — suitcase, duffel, hardcase or backpack, each with
     // its own handles, straps and wheels. Purely cosmetic: GDD §7.2 keeps identity in
     // the TAG, so a player must never be able to sort by shape either.
-    drawBagTop(ctx, bag, w, sd);
+    if (!clay) drawBagTop(ctx, bag, w, sd);
 
     const ts = Math.min(sd * 0.82, 0.36);
     ctx.fillStyle = bag.appearance.tagColor;
@@ -714,7 +768,21 @@ export class Renderer {
       ctx.stroke();
     }
 
-    drawPerson(ctx, {
+    /*
+     * ⚠ THE WALK PHASE IS DERIVED, and it has to stay that way (see "Animation" in
+     * CLAUDE.md). The atlas holds four baked phases and the one to draw is picked from
+     * `walkedM` — a simulation value — never from a renderer clock. So two runs of a seed
+     * animate identically, and a paused game freezes mid-stride instead of jogging on
+     * behind the pause card. A crew standing still holds phase 0 rather than marching.
+     */
+    const CLAY_WALK_PHASES = 4;
+    const moving = speed > 0.15;
+    const phase = moving
+      ? Math.floor(p.walkedM / 0.44) % CLAY_WALK_PHASES   // ~1.75 m stride over 4 frames
+      : 0;
+    const clay = this._blit(`crew${phase}`, Math.atan2(p.aimY, p.aimX), p.x, p.y);
+
+    if (!clay) drawPerson(ctx, {
       s: 1,
       // 3.6 rad/m is a stride of about 1.75 m — a walk, not a scurry.
       walk: p.walkedM * 3.6,

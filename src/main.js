@@ -14,6 +14,7 @@ import { Game, MODES } from './game.js';
 import { Input } from './core/input.js';
 import { Camera } from './render/camera.js';
 import { Renderer } from './render/renderer.js';
+import { atlas } from './render/atlas.js';
 import { Hud } from './ui/hud.js';
 import { DebugOverlay } from './dev/debugOverlay.js';
 import { Sfx } from './systems/audio.js';
@@ -106,6 +107,22 @@ function startShift() {
 }
 hud.onStart = startShift;
 hud.report.onReplay = startShift;      // GDD §20.2: the report has a replay button
+
+/*
+ * THE CLAY ATLAS (GDD §38). Loaded asynchronously, and the boot is deliberately NOT gated
+ * on it: `Renderer` falls back to its vector drawing until the atlas arrives, so the first
+ * frame is never blank and there is no loading screen to sit through. A 1 MB PNG lands in
+ * a few hundred milliseconds and the swap happens on the title screen.
+ *
+ * ⚠ FAILURE IS LOUD, though, and that is the important half. A silent fallback would mean
+ * a 404 on Pages ships a game that looks completely different from the one that was signed
+ * off, renders perfectly well, and says nothing — the same "a gap looks like an absence"
+ * failure GDD §38.6.4 is about, one level up.
+ */
+atlas.load().catch((e) => {
+  window.onerror('sprite atlas failed to load — ' + (e && e.message ? e.message : e),
+                 'assets/sprites.png', 0);
+});
 
 let last = performance.now();
 
