@@ -440,7 +440,7 @@ export const CANVAS_PAIRS = Object.freeze([
   { id: 'gate-paint',   fg: () => PALETTE.paint,      bg: () => PALETTE.stand,  px: 24 },
   { id: 'gate-label',   fg: () => PALETTE.paintLabel, bg: () => PALETTE.stand,  px: 24 },
   { id: 'zone-label',   fg: () => PALETTE.label,      bg: () => PALETTE.indoor, px: 24 },
-  { id: 'safety-hatch', fg: () => PALETTE.safety,     bg: () => PALETTE.ramp,   px: 24 },
+  { id: 'safety-hatch', fg: () => PALETTE.hatch,      bg: () => PALETTE.ramp,   px: 24 },
   /*
    * DECORATIVE, and that is a recorded judgement rather than an omission. The lane lines
    * measure 2.36:1 on the service road, under 1.4.11's 3:1 — but WCAG exempts pure

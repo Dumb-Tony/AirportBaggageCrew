@@ -1970,3 +1970,52 @@ title screen gates on the atlas being ready.
 5. All ten suites stay green, with m8's differentials updated to the new renderer rather
    than deleted.
 6. Every `docs/*.png` is retaken from the new renderer.
+
+### 38.7 What was built — 2026-08-25
+
+**The pipeline.** `tools\_bake.js` models each object as a signed-distance field and
+renders it orthographically at N headings; `tools\bake.ps1` runs it in the harness, decodes
+the payload and writes `assets/`. Result: **296 frames, 2048 × 3176, 1176 KB.**
+
+| set | headings | size |
+|---|---|---|
+| cart | 24 | 192 |
+| tractor | 24 | 176 |
+| aircraft | 8 | 512 |
+| crew | 12 × 4 walk phases | 128 |
+| bags | 8 colours × 3 weights × 8 | 72 |
+
+**Two measurements decided the architecture.** The raymarcher runs at **43 px/ms** in
+JavaScript, flat across sprite sizes — so a live frame would cost ~8.5 s against a 16.7 ms
+budget, and baking the set at load would cost ~80 s. Offline it is.
+
+**The repaint.** Every surface moved from cold blue-grey to warm concrete, and the floors
+moved UP in luminance because the baked sprites are *lit* — albedo times a key light, so
+they sit around 0.45–0.85 — and dropping them onto a 0.06 floor read as toys on slate.
+
+⚠ **m9 stayed green through all of it, which was the prediction.** `E7` bounds the floor
+surfaces inside 1.59:1 of each other, and that is a *luminance* ratio — hue and saturation
+are free. Three text pairs did fail on the first attempt and all three were the same
+problem, light-on-light: the bag tag code at 4.40:1, zone labels at 2.49:1 and the safety
+hatching at 2.45:1. Fixed by dropping the whole floor set ~12% (keeping its spacing) and
+splitting a dark `hatch` colour out of the UI `safety` yellow — the ramp now sits almost
+exactly between the panel background and the concrete in luminance, so **no single yellow
+can clear 3:1 on both**. Real hazard hatching is black and yellow anyway. Final margins:
+bag tag 5.2, gate paint 3.9, gate label 4.1, zone label 4.3, hatch 3.2.
+
+**The camera closed from 46 m to 32 m.** The sprites are modelled objects — side rails,
+wheels, a hard hat, a strap across a bag lid — and at 46 m none of that detail reached the
+screen. ~50 px/m at 1600 px: a bag is 36 px and a person 86 px. Readability only improves,
+so `m1 I5c` and the `MIN_PX_PER_M` floor are unaffected.
+
+### 38.8 Still on the old treatment
+
+Honest list, because a half-converted renderer is easy to mistake for a finished one:
+
+- **The conveyor** is still vector-drawn. Recoloured warm so it no longer reads as a hole
+  in the floor, but it has no form and it is the weakest thing on screen.
+- **Walls** are still flat extruded quads.
+- **The aircraft is baked but under-modelled** — the wing is a slab rather than a tapered
+  planform, and the fuselage albedo blows out against the concrete. It has form now, which
+  is a large improvement on the flat slab, and it is not finished.
+- **`docs/m0`–`m6` screenshots** are still pre-clay; only the two hero images were retaken.

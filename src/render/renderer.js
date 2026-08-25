@@ -33,30 +33,54 @@ import {
 import { EVENTS } from '../core/eventBus.js';
 
 /** World palette. Operational colours, high contrast, colour never the only channel. */
+/*
+ * ⚠ THE CLAY REPAINT (GDD §38). The old palette put every surface in the game between
+ * #2b3040 and #5c6068 — seven surfaces, one hue, twenty-one points of lightness across the
+ * lot — with no light source anywhere in the renderer. That is why objects read as shapes
+ * printed on the floor rather than things standing on it, and it is one decision made
+ * seven times rather than seven decisions.
+ *
+ * What it is NOT is the accessibility rule. m9 E7 asserts no two floor surfaces are far
+ * enough apart to work as a signal — all six inside 1.59:1 — and that is a LUMINANCE
+ * ratio. It says nothing about hue or saturation. So the floors below keep their lightness
+ * spacing almost exactly and still go from cold blue-grey to warm lit concrete: the whole
+ * repaint costs nothing in accessibility coverage, and E7 stays green untouched.
+ *
+ * They also moved UP. The baked sprites are lit — albedo times a key light — so they sit
+ * around 0.45-0.85 luminance, and dropping them onto a 0.06 floor read as toys on slate.
+ * Mid-tone concrete is what puts them in the same world, and it is still dark enough that
+ * white painted markings clear WCAG's 3:1 for large text.
+ */
 export const PALETTE = {
-  void:    '#0b0a12',
-  apron:   '#4a4e57',
-  staging: '#51555e',
-  indoor:  '#3c4450',
-  road:    '#3f424a',
-  ramp:    '#54585f',
-  stand:   '#5c6068',
-  wall:    '#2b3040',
-  wallTop: '#3a4055',
-  paint:   '#e9e4d6',
+  void:    '#171a1f',
+  apron:   '#6f665a',
+  staging: '#756c5f',
+  indoor:  '#695f55',
+  road:    '#625a50',
+  ramp:    '#7a7165',
+  stand:   '#7e7568',
+  wall:    '#453d33',
+  wallTop: '#82786a',
+  paint:   '#f2eee2',
   // Decorative painted markings — lane lines and the like. Not text, and nothing a
   // player has to READ, so it is allowed to sit quietly in the tarmac.
-  paintDim:'rgba(233,228,214,0.35)',
+  paintDim:'rgba(242,238,226,0.38)',
   // Painted WAYFINDING TEXT — the gate numbers on the stands. It used to share
   // `paintDim` and measured 1.93:1 against the stand surface, under WCAG's 3:1 floor for
   // large text. 0.68 gives 3.24:1 on the stand and more on every other surface it can
   // fall on. Separated from `paintDim` rather than raising that, because making the road
   // lane lines a third brighter would be paying for legibility nobody needed.
-  paintLabel:'rgba(233,228,214,0.68)',
+  paintLabel:'#f7f4ea',
   safety:  '#f2c14e',
-  grid:    'rgba(255,255,255,0.045)',
-  label:   'rgba(233,228,214,0.5)',
-  shadow:  'rgba(0,0,0,0.30)',
+  /* GROUND hazard hatching. Split from `safety` because they no longer share a
+   * background: the UI yellow sits on the near-black panels and measures 10.7:1, while
+   * the SAME yellow painted on mid-tone concrete came out at 2.45:1 once the floors were
+   * repainted — the ramp now sits almost exactly between them in luminance, so no single
+   * yellow can clear 3:1 on both. Real hazard hatching is black and yellow anyway. */
+  hatch:   '#2b2417',
+  grid:    'rgba(255,255,255,0.055)',
+  label:   'rgba(247,244,234,0.80)',
+  shadow:  'rgba(46,38,28,0.34)',
   debug:   '#5ce1e6',
 };
 
@@ -238,7 +262,7 @@ export class Renderer {
       }
 
       if (m.kind === 'hatch') {
-        ctx.strokeStyle = PALETTE.safety;
+        ctx.strokeStyle = PALETTE.hatch;
         ctx.lineWidth = 0.22;
         for (let i = 0; i < m.h + m.w; i += 1.1) {
           ctx.beginPath();
@@ -498,14 +522,14 @@ export class Renderer {
     camera.beginUpright(ctx, (c.x0 + c.x1) / 2, c.y0 + c.widthM / 2);
     const sd = c.widthM * camera.squash;
 
-    ctx.fillStyle = '#20232b';
+    ctx.fillStyle = '#3b352c';   // warm machine grey, not the old near-black slab
     ctx.fillRect(-len / 2, -H.belt, len, H.belt + sd * 0.4);
-    ctx.fillStyle = '#2f333d';
+    ctx.fillStyle = '#4e4740';
     ctx.fillRect(-len / 2, -H.belt - sd, len, sd);
 
     // rollers, scrolling with SIMULATION time so a paused clock is a stopped belt
     const phase = ((state.simTimeMs / 1000) * c.speedMps) % 1.0;
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.strokeStyle = 'rgba(255,248,232,0.13)';
     ctx.lineWidth = 0.1;
     ctx.beginPath();
     for (let t = -1 + phase; t < len; t += 1.0) {
@@ -530,39 +554,50 @@ export class Renderer {
   _aircraft(ac) {
     const { ctx, camera } = this;
     const L = ac.lengthM, F = CONFIG.aircraft.fuselageWidthM;
+    /* ⚠ The two aircraft passes must AGREE about rotation. `_drawAircraftGround` does not
+     * rotate, so this must not either: `rot` is π at a stand, and rotating only one of the
+     * pair put the fin over the nose gear for five milestones. The baked sprite is
+     * therefore fetched at heading 0 rather than at `ac.rot`, and m8 C3 asserts the pair
+     * agree rather than asserting either one alone. */
+    const clay = this._blit('aircraft', 0, ac.x, ac.y + F / 2);
     camera.beginUpright(ctx, ac.x, ac.y + F / 2);
     const sd = F * camera.squash;
     const top = -H.fuselage - sd;
 
-    // tail fin first, so the fuselage overlaps its base
-    ctx.fillStyle = '#c8cfda';
-    ctx.beginPath();
-    ctx.moveTo(L / 2 - 4.4, top + sd * 0.4);
-    ctx.lineTo(L / 2 - 2.2, top - 2.9);
-    ctx.lineTo(L / 2 - 0.2, top - 2.9);
-    ctx.lineTo(L / 2 - 0.2, top + sd * 0.4);
-    ctx.closePath(); ctx.fill();
+    if (!clay) {
+      // tail fin first, so the fuselage overlaps its base
+      ctx.fillStyle = '#c8cfda';
+      ctx.beginPath();
+      ctx.moveTo(L / 2 - 4.4, top + sd * 0.4);
+      ctx.lineTo(L / 2 - 2.2, top - 2.9);
+      ctx.lineTo(L / 2 - 0.2, top - 2.9);
+      ctx.lineTo(L / 2 - 0.2, top + sd * 0.4);
+      ctx.closePath(); ctx.fill();
 
-    // side of the tube
-    ctx.fillStyle = '#b4bcc8';
-    roundRect(ctx, -L / 2, -H.fuselage, L, H.fuselage + sd * 0.45, sd * 0.5);
-    ctx.fill();
+      // side of the tube
+      ctx.fillStyle = '#b4bcc8';
+      roundRect(ctx, -L / 2, -H.fuselage, L, H.fuselage + sd * 0.45, sd * 0.5);
+      ctx.fill();
 
-    // upper surface — a capsule, so the nose and tail read as round
-    ctx.fillStyle = '#eef1f5';
-    roundRect(ctx, -L / 2, top, L, sd, sd * 0.5);
-    ctx.fill();
-    ctx.strokeStyle = '#98a0ad'; ctx.lineWidth = 0.08; ctx.stroke();
+      // upper surface — a capsule, so the nose and tail read as round
+      ctx.fillStyle = '#eef1f5';
+      roundRect(ctx, -L / 2, top, L, sd, sd * 0.5);
+      ctx.fill();
+      ctx.strokeStyle = '#98a0ad'; ctx.lineWidth = 0.08; ctx.stroke();
 
-    // cockpit glass at the nose
-    ctx.fillStyle = 'rgba(70,82,100,0.65)';
-    roundRect(ctx, -L / 2 + 0.5, top + sd * 0.22, 1.7, sd * 0.5, 0.2); ctx.fill();
+      // cockpit glass at the nose
+      ctx.fillStyle = 'rgba(70,82,100,0.65)';
+      roundRect(ctx, -L / 2 + 0.5, top + sd * 0.22, 1.7, sd * 0.5, 0.2); ctx.fill();
 
-    // cabin windows along the side, and the flight number where it can be read
-    ctx.fillStyle = 'rgba(70,82,100,0.5)';
-    for (let x = -L / 2 + 3.6; x < L / 2 - 5.2; x += 1.45) {
-      ctx.fillRect(x, -H.fuselage + 0.42, 0.5, 0.5);
+      // cabin windows along the side
+      ctx.fillStyle = 'rgba(70,82,100,0.5)';
+      for (let x = -L / 2 + 3.6; x < L / 2 - 5.2; x += 1.45) {
+        ctx.fillRect(x, -H.fuselage + 0.42, 0.5, 0.5);
+      }
     }
+    /* The flight number stays a RUNTIME overlay whatever the body is drawn from: it is
+     * flight data, and the renderer is forbidden from importing that (CLAUDE.md). It
+     * arrives denormalised on the aircraft, exactly like a cart placard. */
     ctx.fillStyle = 'rgba(52,60,74,0.92)';
     ctx.font = `800 ${1.25 * this.textScale}px Quicksand, "Segoe UI", system-ui, sans-serif`;
     ctx.textAlign = 'center';

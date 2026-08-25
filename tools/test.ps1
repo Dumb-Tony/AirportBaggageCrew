@@ -29,6 +29,20 @@ $baseline = @{
   m0 = 126; m1 = 159; m2 = 161; m3 = 113; m4 = 131; m5 = 197; m6 = 193; m7 = 159
   m8 = 38; m9 = 111
 }
+<#
+  PER-SUITE VIRTUAL TIME. 90 s is the default and it was enough for every suite until the
+  clay atlas landed (GDD §38): the page now fetches a 1.2 MB PNG before it can draw, and
+  m4 — which runs several WHOLE shifts end to end — was already close enough to the line
+  that the extra work tipped it over.
+
+  ⚠ It failed as "No test output found - the page probably crashed", which is the same
+  message a real crash produces, and it failed ONLY in a full run while passing alone.
+  That reads exactly like flakiness and it is not: it is reproducible, it is a timeout,
+  and it was confirmed by re-running the same suite at 180 s rather than by re-running it
+  until it went green. Raise the number for the suite that needs it; do not raise the
+  default, which would hide the next one.
+#>
+$budget = @{ m4 = 180000 }
 $suites = @("m0","m1","m2","m3","m4","m5","m6","m7","m8","m9")
 if ($Only) { $suites = @($Only) }
 
@@ -37,7 +51,8 @@ foreach ($s in $suites) {
   Write-Host ""
   Write-Host "=== $s ($Browser) ===" -ForegroundColor Cyan
   $expect = if ($baseline.ContainsKey($s)) { $baseline[$s] } else { 0 }
-  & "$root\tools\smoketest.ps1" -Tests "tools\$s-tests.js" -Browser $Browser -ExpectAssertions $expect
+  $vt     = if ($budget.ContainsKey($s))   { $budget[$s] }   else { 90000 }
+  & "$root\tools\smoketest.ps1" -Tests "tools\$s-tests.js" -Browser $Browser -ExpectAssertions $expect -VirtualTimeMs $vt
   if ($LASTEXITCODE -ne 0) { $failed += $s }
 }
 

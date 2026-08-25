@@ -48,9 +48,16 @@ export const CONFIG = {
     // keeping the old width made everything read smaller — the opposite of the point.
     // At 46 m across a 1600 px window that is ~35 px/m: a bag is 25 px and a person is
     // 60 px tall, and the tag codes GDD 7.2 needs are comfortably legible.
-    viewWidthM: 46,
+    //
+    // 32, not 46 (GDD §38). The clay sprites are MODELLED objects rather than icons —
+    // side rails, wheels, a hard hat, a strap across a bag lid — and at 46 m none of that
+    // detail survived to the screen. The player's own complaint was "hard to read at a
+    // glance", and closing the camera is what answers it: ~50 px/m at 1600 px, so a bag is
+    // 36 px and a person 86 px. Readability only improves, which is why the floor in
+    // MIN_PX_PER_M never binds here and m1 I5c stays green.
+    viewWidthM: 32,
     // Vertical foreshortening of the GROUND plane. 1.0 is straight down and reads as a
-    // floorplan; lower tilts the view. 0.75 is about a 49-degree camera and is what
+    // floorplan; lower tilts the view. 0.669 is a 42-degree camera and is what
     // makes the airport read as a place rather than a map (GDD 19.1 allows 2.5D).
     groundSquash: 0.669,
     followLerp: 7,         // camera catch-up rate, 1/s. Higher is snappier, more jarring.

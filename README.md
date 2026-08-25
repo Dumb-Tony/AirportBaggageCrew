@@ -13,10 +13,9 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Phase 1 feature-complete, plus a hardening pass, an audit of the tests
-themselves, a mutation pass that tested the audit, and a balance pass that found the
-difficulty ladder was upside down. 1388 assertions green across ten suites, and 16 of 16
-deliberate bugs get caught.**
+**Current state: Phase 1 feature-complete, and mid-way through a complete visual
+overhaul — the world is now a soft clay diorama rendered from a pre-baked sprite atlas.
+1388 assertions green across ten suites, and 16 of 16 deliberate bugs get caught.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends
@@ -62,11 +61,19 @@ schedule-pressure assist that gives you more time without changing a single verb
 The view is **oblique 2.5D** — still top-down Canvas 2D, but the ground is foreshortened
 and everything on it stands up, which GDD §19.1 permits ("top-down or 2.5D").
 
-Everything is drawn procedurally: no fetched assets, no external requests. Surfaces are
-generated tiles (aggregate speckle, slab joints, worn wheel paths); the crew walk with a
-real stride and counter-swinging arms; wheels turn on distance travelled; the cargo door
-travels rather than snapping. **All of it derives from simulation values**, so two runs of
-a seed animate identically and pausing freezes the airport mid-stride.
+Every object is a **pre-baked clay sprite** (GDD §38): the crew, carts, tractor, bags and
+aircraft are modelled as signed-distance fields and rendered offline with wrapped diffuse,
+ambient occlusion and soft shadows, then blitted from a single 1.2 MB atlas. Surfaces are
+still generated tiles — aggregate speckle, slab joints, worn wheel paths.
+
+The atlas is the project's **first shipped asset**, and it is same-origin rather than
+embedded, which the suite already permitted: `m6 G4` rejects `src`/`href` matching
+`https?://`, and `G6` rejects runtime resources outside `location.origin`. There are still
+no external requests and no dependencies.
+
+**Animation is still derived from simulation values** — the walk phase is picked from
+`player.walkedM`, wheels from `odometerM` — so two runs of a seed animate identically and
+pausing freezes the airport mid-stride.
 
 ![Sorting off the belt into the marked cart bays](docs/vis-sortroom.png)
 

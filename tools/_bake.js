@@ -120,6 +120,42 @@ function mCrew(x, y, z, p) {
   return _d;
 }
 
+/*
+ * The aircraft. The biggest object in the game by a long way, and the last one still
+ * drawn as a flat slab — which read badly the moment everything around it had form.
+ *
+ * ⚠ THE DRAWN FUSELAGE IS 1.9 m, NOT THE REAL 3.2. That is a decision the renderer made
+ * at M5 and it is kept: at true height the fuselage is a featureless wall that buries its
+ * own wings and most of the stand, and the player has to see the stand to work it. Heights
+ * here are presentation; none of them is collision, and the HOLD is a volume the
+ * simulation owns (`aircraftHoldZone`), not anything drawn below.
+ *
+ * The cargo door and the flight number are NOT baked — they are per-aircraft state
+ * (`door01` animates, the number is flight data the renderer must not import), so they
+ * stay runtime overlays exactly as they were.
+ */
+const A = CONFIG.aircraft;
+function mAircraft(x, y, z) {
+  _d = 1e9; _m = 'fuselage';
+  const hl = A.lengthM / 2, hw = A.wingspanM / 2;
+  /* fuselage: a long rounded tube, nose tapered by a second smaller body */
+  put(sdRoundBox(x, y - 1.30, z, hl * 0.86, 0.95, 1.30, 0.95), 'fuselage');
+  put(sdRoundBox(x + hl * 0.80, y - 1.22, z, hl * 0.14, 0.80, 0.95, 0.78), 'fuselage');
+  /* wings, swept back a little by offsetting the root */
+  put(sdRoundBox(x - 0.6, y - 0.92, z, 2.6, 0.16, hw * 0.97, 0.22), 'fuselage');
+  /* engines under the wings */
+  for (const ez of [-hw * 0.45, hw * 0.45]) {
+    put(sdRoundBox(x - 0.2, y - 0.70, z - ez, 1.5, 0.52, 0.52, 0.48), 'metal');
+  }
+  /* tailplane and fin */
+  put(sdRoundBox(x - hl * 0.86, y - 1.30, z, 1.5, 0.13, hw * 0.34, 0.18), 'fuselage');
+  put(sdRoundBox(x - hl * 0.80, y - 2.85, z, 1.4, 1.55, 0.16, 0.22), 'fuselage');
+  /* undercarriage */
+  put(sdCylZ(x + hl * 0.62, y - 0.30, z, 0.16, 0.30), 'rubber');
+  for (const gz of [-1.5, 1.5]) put(sdCylZ(x - 1.2, y - 0.34, z - gz, 0.20, 0.34), 'rubber');
+  return _d;
+}
+
 /* ── the bake ─────────────────────────────────────────────────────────────── */
 
 function normalAt(f, p, x, y, z) {
@@ -216,6 +252,9 @@ function bakeOne(model, params, heading, S, spanM, baseFrac) {
 const JOBS = [
   { name: 'cart',    model: mCart,    headings: 24, size: 192, span: 3.6, base: 0.20, params: {} },
   { name: 'tractor', model: mTractor, headings: 24, size: 176, span: 3.2, base: 0.20, params: {} },
+  /* 8 headings is plenty: it sits on a stand at one angle and only rotates while taxiing
+   * in and pushing back, which is slow and distant. 512 px because it is 26 m long. */
+  { name: 'aircraft', model: mAircraft, headings: 8,  size: 512, span: 34.0, base: 0.30, params: {} },
 ];
 for (let i = 0; i < 4; i++) {
   JOBS.push({ name: `crew${i}`, model: mCrew, headings: 12, size: 128, span: 2.4,
