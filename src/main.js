@@ -72,15 +72,6 @@ const input = new Input(window).attach();
 const hud   = new Hud(uiRoot, game);
 const debug = new DebugOverlay(uiRoot, game, renderer);
 
-/* Mouse aim. The screen position is stored on move; the WORLD position is recomputed
-   every frame, because the camera moves under a stationary cursor and the hands must
-   keep pointing at the same place on the ramp, not the same place on the glass. */
-window.addEventListener('mousemove', (e) => {
-  input.pointer.x = e.clientX;
-  input.pointer.y = e.clientY;
-  input.pointer.seen = true;
-});
-
 /* Focus loss auto-pauses — GDD §24.3. Alt-tabbing out of a live airport and returning to
    three departed flights is a bug report, not a difficulty setting. */
 input.onBlur = () => game.pauseForBlur();
@@ -132,9 +123,11 @@ function frame(now) {
 
   camera.resize(canvas);
 
-  if (input.pointer.seen) {
-    input.pointerWorld = camera.screenToWorld(input.pointer.x, input.pointer.y);
-  }
+  /* The per-frame pointer→world projection is GONE along with mouse aim (see
+   * entities/player.js). Nothing reads `pointerWorld` now, and leaving it maintained
+   * would be a live wire: the next thing to reach for "where is the mouse" would find a
+   * fresh, correct value sitting there and quietly reintroduce the lock. `Input` keeps
+   * the field so m7 D2 can go on asserting nothing needs it. */
 
   game.frame(dt, input);
 

@@ -25,7 +25,7 @@ import { CONFIG } from '../config.js';
 import { texAsphalt, texIndoor, texRoad, pattern, tint } from './textures.js';
 import { FX } from './fx.js';
 import { atlas } from './atlas.js';
-import { BAG_CLAY } from './clay.js';
+import { BAG_CLAY, CLAY_MATERIALS, clayLit, N_TOP, N_FRONT } from './clay.js';
 import {
   drawPerson, drawBagTop, drawWheel, drawTractorBody, drawCartBody,
   drawAircraftGear, drawHoldDoor, rr as roundRect,
@@ -506,14 +506,44 @@ export class Renderer {
     }
   }
 
+  /*
+   * A wall, lit by the same lamp as everything in the atlas (GDD §38).
+   *
+   * NOT a sprite, and deliberately: `WALLS` is data and its entries are whatever length
+   * the airport says, so a tiled segment would seam and a stretched one would smear its
+   * rounded corners. `clayLit` runs the baker's own shading arithmetic for a flat surface
+   * instead, so the face and the lid are the same material under the same light as a cart
+   * flank — matched by construction rather than by eye.
+   *
+   * The extras are what a flat quad does not get for free from that: a soft AO gradient
+   * down the face where it meets the floor, and a bright lip along the top edge. Both are
+   * things the sprite baker computes per pixel; here they are approximated once, because
+   * a wall is a box and its occlusion is not interesting.
+   */
   _wall(w) {
     const { ctx, camera } = this;
     camera.beginUpright(ctx, w.x + w.w / 2, w.y + w.h);
     const sw = w.w, sd = w.h * camera.squash;
-    ctx.fillStyle = PALETTE.wall;
-    ctx.fillRect(-sw / 2, -H.wall, sw, H.wall + sd * 0.5);
-    ctx.fillStyle = PALETTE.wallTop;
+    const A = CLAY_MATERIALS.wall;
+    const faceH = H.wall + sd * 0.5;
+
+    ctx.fillStyle = clayLit(A, N_FRONT[0], N_FRONT[1], N_FRONT[2]);
+    ctx.fillRect(-sw / 2, -H.wall, sw, faceH);
+
+    /* contact occlusion: the floor darkens the bottom of the face */
+    const ao = ctx.createLinearGradient(0, -H.wall, 0, -H.wall + faceH);
+    ao.addColorStop(0, 'rgba(38,30,20,0)');
+    ao.addColorStop(1, 'rgba(38,30,20,0.34)');
+    ctx.fillStyle = ao;
+    ctx.fillRect(-sw / 2, -H.wall, sw, faceH);
+
+    ctx.fillStyle = clayLit(A, N_TOP[0], N_TOP[1], N_TOP[2]);
     ctx.fillRect(-sw / 2, -H.wall - sd, sw, sd);
+
+    /* the lit edge where lid meets face — a rounded solid has one, a pair of quads
+     * does not, and without it the wall reads as two flat bands */
+    ctx.fillStyle = clayLit(A, 0, 0.72, 0.69);
+    ctx.fillRect(-sw / 2, -H.wall - sd * 0.16, sw, sd * 0.16);
   }
 
   _belt(c, state) {
@@ -522,14 +552,40 @@ export class Renderer {
     camera.beginUpright(ctx, (c.x0 + c.x1) / 2, c.y0 + c.widthM / 2);
     const sd = c.widthM * camera.squash;
 
-    ctx.fillStyle = '#3b352c';   // warm machine grey, not the old near-black slab
-    ctx.fillRect(-len / 2, -H.belt, len, H.belt + sd * 0.4);
-    ctx.fillStyle = '#4e4740';
+    /*
+     * The conveyor, lit by the baker's own model (GDD §38) rather than by two hand-picked
+     * greys. Like the walls it stays DRAWN — the belt is 21 m of a length that lives in
+     * data, so a tiled sprite would seam — but `clayLit` puts its flank and its deck under
+     * the same lamp as the carts standing next to it.
+     *
+     * It also gains the things that were making it read as a hole in the floor rather than
+     * as machinery: legs it stands on, a raised side rail, a contact shadow under it, and
+     * a lit lip along the near edge of the deck.
+     */
+    const BODY = CLAY_MATERIALS.beltBody, DECK = CLAY_MATERIALS.beltDeck;
+    const faceH = H.belt + sd * 0.4;
+
+    /* legs, before the body so the body sits over them */
+    ctx.fillStyle = clayLit(CLAY_MATERIALS.metal, N_FRONT[0], N_FRONT[1], N_FRONT[2], 0.55);
+    for (let t = 0.9; t < len - 0.4; t += 3.2) {
+      ctx.fillRect(-len / 2 + t - 0.09, -H.belt * 0.62, 0.18, H.belt * 0.62 + sd * 0.30);
+    }
+
+    ctx.fillStyle = clayLit(BODY, N_FRONT[0], N_FRONT[1], N_FRONT[2]);
+    ctx.fillRect(-len / 2, -H.belt, len, faceH);
+
+    const ao = ctx.createLinearGradient(0, -H.belt, 0, -H.belt + faceH);
+    ao.addColorStop(0, 'rgba(30,24,16,0)');
+    ao.addColorStop(1, 'rgba(30,24,16,0.40)');
+    ctx.fillStyle = ao;
+    ctx.fillRect(-len / 2, -H.belt, len, faceH);
+
+    ctx.fillStyle = clayLit(DECK, N_TOP[0], N_TOP[1], N_TOP[2]);
     ctx.fillRect(-len / 2, -H.belt - sd, len, sd);
 
     // rollers, scrolling with SIMULATION time so a paused clock is a stopped belt
     const phase = ((state.simTimeMs / 1000) * c.speedMps) % 1.0;
-    ctx.strokeStyle = 'rgba(255,248,232,0.13)';
+    ctx.strokeStyle = 'rgba(22,18,12,0.30)';
     ctx.lineWidth = 0.1;
     ctx.beginPath();
     for (let t = -1 + phase; t < len; t += 1.0) {
@@ -539,8 +595,16 @@ export class Renderer {
     }
     ctx.stroke();
 
-    ctx.fillStyle = PALETTE.safety;
-    ctx.fillRect(len / 2 - 0.25, -H.belt - sd, 0.3, sd);
+    /* raised side rails, so bags read as being CONTAINED by the belt rather than
+     * balanced on a plank — the same silhouette fix the cart needed */
+    ctx.fillStyle = clayLit(BODY, 0, 0.72, 0.69);
+    ctx.fillRect(-len / 2, -H.belt - sd - 0.10, len, 0.10);
+    ctx.fillStyle = clayLit(BODY, N_FRONT[0], N_FRONT[1], N_FRONT[2], 0.75);
+    ctx.fillRect(-len / 2, -H.belt - 0.10, len, 0.10);
+
+    /* the discharge end, where bags fall off — the one part a player must locate fast */
+    ctx.fillStyle = clayLit(CLAY_MATERIALS.beltRail, N_TOP[0], N_TOP[1], N_TOP[2]);
+    ctx.fillRect(len / 2 - 0.25, -H.belt - sd - 0.10, 0.3, sd + 0.10);
   }
 
   /**

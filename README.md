@@ -13,9 +13,9 @@ The live build is GitHub Pages serving `main` at root, so **every push republish
 There is no build step: the game is plain ES modules and static files, and Pages already
 serves them over http, which is the one thing the game needs (see below).
 
-**Current state: Phase 1 feature-complete, and mid-way through a complete visual
-overhaul — the world is now a soft clay diorama rendered from a pre-baked sprite atlas.
-1388 assertions green across ten suites, and 16 of 16 deliberate bugs get caught.**
+**Current state: Phase 1 feature-complete, with the world rebuilt as a soft clay diorama
+rendered from a pre-baked sprite atlas. 1388 assertions green across ten suites, and 16 of
+16 deliberate bugs get caught.**
 Three flights, fifty-one bags, eleven and a half minutes. Bags arrive on a conveyor, get
 sorted into marked carts, hauled to a gate behind a tractor, and loaded into an aircraft
 hold — and the aircraft leave on the clock whether you are ready or not. The shift ends

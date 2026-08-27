@@ -79,7 +79,59 @@ export const CLAY_MATERIALS = Object.freeze({
   bagSlate:  [0.45, 0.50, 0.58],
   bagSand:   [0.80, 0.72, 0.56],
   bagTeal:   [0.24, 0.62, 0.66],
+  /* Surfaces that stay DRAWN rather than baked — walls and the conveyor. Albedos, not
+   * finished colours: `clayLit` turns each into a lit face or a lit lid, so they share a
+   * lamp with everything in the atlas instead of being matched by eye. */
+  /* Chosen against the FLOOR, not by eye. Concrete sits at luminance 118; the lighting
+   * model multiplies albedo by ~1.46 before gamma, so an albedo that looks dark on paper
+   * comes out lighter than the ground. These are the values that put the belt below the
+   * floor and the wall's lid above it. */
+  wall:      [0.30, 0.27, 0.23],
+  beltBody:  [0.055, 0.053, 0.050],
+  beltDeck:  [0.075, 0.072, 0.068],
+  beltRail:  [0.86, 0.68, 0.22],
 });
+
+/*
+ * ── LIGHTING A SURFACE THE BAKER IS NOT GOING TO BAKE ────────────────────────
+ *
+ * Some things cannot be sprites. Walls come in whatever sizes `WALLS` says, and the
+ * conveyor is 21 m of belt whose length is data — tiling a baked segment across either
+ * means seams, and stretching one means the rounded corners smear. They stay drawn.
+ *
+ * But "drawn" must not mean "lit differently", which is what a hand-picked pair of greys
+ * would be. `clayLit` runs the SAME arithmetic `tools\_bake.js` runs per pixel — same
+ * wrapped diffuse, same key, sky and bounce terms, same gamma — for one flat surface with
+ * one normal. So a wall face and a cart's flank are the same material under the same lamp
+ * by construction, and neither can drift from the other without this file changing.
+ *
+ * What it cannot do is shadows and ambient occlusion, which need geometry the sprite baker
+ * had and a flat quad does not. `shadow` and `occ` are therefore parameters: pass 1 for an
+ * unoccluded surface, or less to darken a face that sits in its own pocket.
+ */
+const _clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+
+export function clayLit(albedo, nx, ny, nz, shadow = 1, occ = 1) {
+  const ndl = nx * LIGHT_DIR[0] + ny * LIGHT_DIR[1] + nz * LIGHT_DIR[2];
+  const wrap = _clamp((ndl + WRAP) / (1 + WRAP), 0, 1);
+  const sky = _clamp(0.5 + 0.5 * ny, 0, 1);
+  const bnc = _clamp(0.5 - 0.5 * ny, 0, 1);
+  const out = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    const v = albedo[i] * (
+      KEY_COL[i] * wrap * (0.16 + (1 - 0.16) * shadow) * 1.48 +
+      SKY_COL[i] * sky * occ * 0.40 +
+      BOUNCE_COL[i] * bnc * occ * 0.26
+    );
+    out[i] = Math.round(_clamp(Math.pow(v, 0.4545), 0, 1) * 255);
+  }
+  return `rgb(${out[0]},${out[1]},${out[2]})`;
+}
+
+/** The surface normals a standing box shows this camera: its lid, and the flank that
+ *  faces the viewer. Named so call sites read as geometry rather than as three numbers. */
+export const N_TOP   = Object.freeze([0, 1, 0]);
+export const N_FRONT = Object.freeze([0, 0, 1]);
 
 /** The bag body colours, in the order the bag entity indexes them.
  *  ⚠ Deliberately NOT the flight — GDD §7.2, and m1 C6 asserts they are shared across

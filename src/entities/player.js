@@ -89,15 +89,26 @@ export function stepPlayer(state, dtSec, input) {
 
   if (!moving) applyFriction(p, dtSec, P.friction);
 
-  // Aim: the mouse if the player is using it, otherwise the way they are walking.
-  // Keyboard-only play must work (GDD §16.6), so movement direction is a real fallback,
-  // not a degraded one.
-  const pw = input && input.pointerWorld;
-  if (pw) {
-    const dx = pw.x - p.x, dy = pw.y - p.y;
-    const d = Math.hypot(dx, dy);
-    if (d > 0.25) { p.aimX = dx / d; p.aimY = dy / d; }
-  } else if (moving) {
+  /*
+   * AIM FOLLOWS MOVEMENT, and nothing else.
+   *
+   * It used to prefer the mouse whenever `pointerWorld` was set — and `main.js` sets that
+   * on the first `mousemove` and every frame after, for ever. So one accidental twitch of
+   * the mouse locked the crew's facing to the cursor permanently: walking north while
+   * staring south, hands reaching at whatever the pointer happened to be over. There was
+   * no way back to walking-aim short of reloading, which is what made it read as a lock
+   * rather than as a control.
+   *
+   * GDD §17.1 offers "mouse position OR movement direction" and then says outright to
+   * favour reliable movement over elaborate mouse aiming for a top-down prototype. This
+   * is that. It also makes §16.6's keyboard-only requirement the DEFAULT path rather than
+   * a fallback, which is the shape m7 section D has been asserting all along.
+   *
+   * Standing still HOLDS the last direction, deliberately: you line a throw up by facing
+   * it, and a crew that snapped back to some resting angle the moment you stopped walking
+   * could not be aimed at all.
+   */
+  if (moving) {
     const d = Math.hypot(ax.x, ax.y);
     p.aimX = ax.x / d; p.aimY = ax.y / d;
   }

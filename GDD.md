@@ -2008,14 +2008,54 @@ wheels, a hard hat, a strap across a bag lid — and at 46 m none of that detail
 screen. ~50 px/m at 1600 px: a bag is 36 px and a person 86 px. Readability only improves,
 so `m1 I5c` and the `MIN_PX_PER_M` floor are unaffected.
 
-### 38.8 Still on the old treatment
+### 38.8 The two things that stay DRAWN, and why
 
-Honest list, because a half-converted renderer is easy to mistake for a finished one:
+The conveyor and the walls are **not** sprites, and that is a decision rather than a gap.
+`WALLS` is data and its entries are whatever size the airport says; the belt is 21 m of a
+length that also lives in data. A tiled baked segment would seam and a stretched one would
+smear its rounded corners.
 
-- **The conveyor** is still vector-drawn. Recoloured warm so it no longer reads as a hole
-  in the floor, but it has no form and it is the weakest thing on screen.
-- **Walls** are still flat extruded quads.
+So they are drawn — but lit by `clayLit`, which runs **the baker's own shading arithmetic**
+for a flat surface: same wrapped diffuse, same key, sky and bounce terms, same gamma. A
+wall face and a cart's flank are therefore the same material under the same lamp *by
+construction*, and neither can drift without `src/render/clay.js` changing. What a flat
+quad cannot get from that is shadow and occlusion, so those are parameters, and the two
+surfaces add the rest by hand: a contact-AO gradient at the floor, a lit lip where lid
+meets face, legs under the belt, and raised side rails so bags read as contained rather
+than balanced on a plank.
+
+⚠ **The albedos were computed against the floor, not chosen by eye.** The lighting model
+multiplies albedo by ~1.46 before gamma, so a value that reads dark on paper comes out
+*lighter* than the concrete: the first attempt put the belt deck at 0.21 and it vanished
+into the ground. Concrete sits at luminance 118; the shipped belt deck is 92 and its face
+65, which is what makes it read as machinery.
+
+### 38.9 Still on the old treatment
+
 - **The aircraft is baked but under-modelled** — the wing is a slab rather than a tapered
   planform, and the fuselage albedo blows out against the concrete. It has form now, which
   is a large improvement on the flat slab, and it is not finished.
 - **`docs/m0`–`m6` screenshots** are still pre-clay; only the two hero images were retaken.
+
+### 38.10 Mouse aim removed
+
+`player.aimX/aimY` followed the cursor whenever `input.pointerWorld` was set — and `main.js`
+set that on the first `mousemove` and every frame after, for ever. One accidental twitch of
+the mouse locked the crew's facing to the cursor permanently: walking north while staring
+south, hands reaching at whatever the pointer happened to be over, with no way back short
+of reloading. That is what made it read as a lock rather than as a control.
+
+Facing now follows **movement, and nothing else**. GDD §17.1 offers "mouse position or
+movement direction" and then says outright to favour reliable movement over elaborate mouse
+aiming for a top-down prototype, so this is the option the document already preferred. It
+also promotes §16.6's keyboard-only requirement from a fallback to the only path — which is
+the shape `m7` section D has been asserting all along, and why that section needed no
+changes.
+
+Standing still HOLDS the last direction, deliberately: a throw is lined up by facing it,
+and a crew that snapped back to some resting angle on stopping could not be aimed at all.
+
+The per-frame pointer→world projection and the `mousemove` listener are both gone rather
+than left maintained. A correct, fresh `pointerWorld` sitting unread is a live wire: the
+next thing to want "where is the mouse" would find it and quietly reintroduce the lock.
+`Input` keeps the field so `m7 D2` can go on asserting that nothing needs it.
